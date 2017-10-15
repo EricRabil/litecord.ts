@@ -144,20 +144,23 @@ export default class Server {
     logger.log("Express is listening on port 3500 - Starting socket server");
     this.socketManager = new SocketManager(this);
     logger.log("Starting JavaScript shell...");
-    realReadline.createInterface({input: process.stdin, output: process.stdout}).on("line", (i) => {
+    realReadline.createInterface({input: process.stdin, output: process.stdout}).on("line", async (i) => {
       try {
         const output = eval(i);
-        output instanceof Promise
-          ? output.then((a) => {
+        if (output instanceof Promise) {
+          try {
+            const result = await output;
             console.log("Promise Resolved");
-            console.log(util.inspect(a, {depth: 0}));
-          }).catch((e) => {
+            console.log(util.inspect(result, {depth: 0}));
+          } catch (e) {
             console.log("Promise Rejected");
             console.log(e.stack);
-          })
-          : output instanceof Object
-            ? console.log(util.inspect(output, {depth: 0}))
-            : console.log(output);
+          }
+        } else if (output instanceof Object) {
+          console.log(util.inspect(output), {depth: 0});
+        } else {
+          console.log(output);
+        }
       } catch (err) {
         console.log(err.stack);
       }

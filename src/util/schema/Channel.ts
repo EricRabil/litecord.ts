@@ -39,74 +39,74 @@ export class PermissionOverwrites extends Typegoose {
 }
 
 export class Channel extends Typegoose {
- @prop()
- public id: string;
+  @prop()
+  public id: string;
 
- /**
-  * The type of channel
-  *
-  * 0 - GUILD_TEXT,
-  * 1 - DM,
-  * 2 - GUILD_VOICE,
-  * 3 - GROUP_DM,
-  * 4 - GUILD_CATEGORY
-  *
-  * @type {(0 | 1 | 2 | 3 | 4)}
-  * @memberof Channel
-  */
- @prop()
- public type: 0 | 1 | 2 | 3 | 4;
+  /**
+   * The type of channel
+   *
+   * 0 - GUILD_TEXT,
+   * 1 - DM,
+   * 2 - GUILD_VOICE,
+   * 3 - GROUP_DM,
+   * 4 - GUILD_CATEGORY
+   *
+   * @type {(0 | 1 | 2 | 3 | 4)}
+   * @memberof Channel
+   */
+  @prop()
+  public type: 0 | 1 | 2 | 3 | 4;
 
- @prop()
- public guildID?: string;
+  @prop()
+  public guildID?: string;
 
- @prop()
- public channelPosition?: number;
+  @prop()
+  public channelPosition?: number;
 
- @arrayProp({items: PermissionOverwrites})
- public permissionOverwrites?: PermissionOverwrites[];
+  @arrayProp({items: PermissionOverwrites})
+  public permissionOverwrites?: PermissionOverwrites[];
 
- @prop()
- public name?: string;
+  @prop()
+  public name?: string;
 
- @prop()
- public topic?: string;
+  @prop()
+  public topic?: string;
 
- @prop()
- public nsfw?: boolean = false;
+  @prop()
+  public nsfw?: boolean = false;
 
- @prop()
- public lastMessage?: string;
+  @prop()
+  public lastMessage?: string;
 
- @prop()
- public bitrate?: number;
+  @prop()
+  public bitrate?: number;
 
- @prop()
- public userLimit?: number;
+  @prop()
+  public userLimit?: number;
 
- /**
-  * Array of user IDs in the group DM, when sent to API this must be an array of user objects.
-  *
-  * @type {string[]}
-  * @memberof Channel
-  */
- @arrayProp({items: String})
- public recipients?: string[];
+  /**
+   * Array of user IDs in the group DM, when sent to API this must be an array of user objects.
+   *
+   * @type {string[]}
+   * @memberof Channel
+   */
+  @arrayProp({items: String})
+  public recipients?: string[];
 
- @prop()
- public icon?: string;
+  @prop()
+  public icon?: string;
 
- @prop()
- public ownerID?: string;
+  @prop()
+  public ownerID?: string;
 
- @prop()
- public applicationID?: string;
+  @prop()
+  public applicationID?: string;
 
- @prop()
- public parentID?: string;
+  @prop()
+  public parentID?: string;
 
- @instanceMethod
- public async toChannelObject(this: InstanceType<Channel>): Promise<IChannelObject> {
+  @instanceMethod
+  public async toChannelObject(this: InstanceType<Channel>): Promise<IChannelObject> {
     const channelObject: IChannelObject = {
       id: this._id,
       type: this.type,
@@ -125,11 +125,10 @@ export class Channel extends Typegoose {
       parent_id: this.parentID,
     };
     if (this.recipients) {
-      const lookups: Array<Promise<InstanceType<User> | null>> = [];
-      this.recipients.forEach((recipient) => {
-        lookups.push(UserModel.findById(recipient).then((user) => user));
+      const users: Array<InstanceType<User> | null> = [];
+      this.recipients.forEach(async (recipient) => {
+        users.push(await UserModel.findById(recipient));
       });
-      const users: Array<InstanceType<User> | null> = [] = await Promise.all(lookups);
       const userObjs: Array<IUserObject | undefined> = users.map((user) => {
         if (user) {
           return user.toUserObject();
@@ -141,7 +140,7 @@ export class Channel extends Typegoose {
       channelObject.recipients = userObjsFiltered;
     }
     return channelObject;
- }
+  }
 }
 
 const ChannelModel = new Channel().getModelForClass(Channel);

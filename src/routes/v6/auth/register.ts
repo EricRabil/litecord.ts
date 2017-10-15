@@ -20,29 +20,24 @@ export default class Register implements Route {
   public constructor(private server: Server) {}
 
   public requestHandler(): express.RequestHandler {
-    return (req: express.Request, res: express.Response) => {
+    return async (req: express.Request, res: express.Response) => {
       const body = req.body;
       if (this.isValid(body)) {
-        User.findOne({email: body.email}).then((docs) => {
-          if (docs) {
-            res.status(400).send({email: ["Email already registered"]});
-          } else {
-            const registered = new User();
-            registered.username = body.username;
-            registered.email = body.email;
-            registered.setPassword(body.password).then(() => {
-              registered.newDiscriminator().then(() => {
-                registered.save().then(() => {
-                  registered.generateToken().then((token) => {
-                    res.send({token});
-                  });
-                });
-              });
-            });
-          }
-        });
+        const user = await User.findOne({email: body.email});
+        if (user) {
+          res.status(400).send({email: ["Email already registered"]});
+        } else {
+          const registered = new User();
+          registered.username = body.username;
+          registered.email = body.email;
+          await registered.setPassword(body.password);
+          await registered.newDiscriminator();
+          await registered.save();
+          const token = await registered.generateToken();
+          res.send({token});
+        }
       } else {
-        res.status(400).send({message: "Missing field(s) :("});
+        res.status(400).send({email: ["Missing fields"]});
       }
     };
   }

@@ -16,25 +16,19 @@ export default class Login implements Route {
   public constructor(private server: Server) {}
 
   public requestHandler(): express.RequestHandler {
-    return (req: express.Request, res: express.Response) => {
+    return async (req: express.Request, res: express.Response) => {
       const body = req.body;
       if (this.isValid(body)) {
-        User.findOne({email: body.email}).then((docs) => {
-          if (docs) {
-            docs.comparePasswords(body.password).then((match) => {
-              if (match) {
-                Server.generateToken(docs).then((token) => {
-                  res.send({token});
-                }).catch((error) => {
-                  Server.logger.debug(error);
-                  this.sendInvalid(res);
-                });
-              }
-            });
-          } else {
-            this.sendInvalid(res);
+        const user = await User.findOne({email: body.email});
+        if (user) {
+          const valid = await user.comparePasswords(body.password);
+          if (valid) {
+            const token = await Server.generateToken(user);
+            res.send({token});
           }
-        });
+        } else {
+          this.sendInvalid(res);
+        }
       }
     };
   }

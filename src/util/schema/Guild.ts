@@ -44,10 +44,10 @@ export interface IGuildObject {
 
 function lookupBulk<T>(document: mongoose.Model<InstanceType<T>>,
                        queries: object[]):
-                       Array<Promise<InstanceType<T>>> {
-  const lookups: Array<Promise<InstanceType<T> | null>> = [];
-  queries.forEach((query) => {
-    lookups.push(document.findOne(query).then((doc) => doc));
+                       Array<InstanceType<T>> {
+  const lookups: Array<InstanceType<T> | null> = [];
+  queries.forEach(async (query) => {
+    lookups.push(await document.findOne(query));
   });
   lookups.filter((lookup) => !!lookup);
   return (lookups as any);
@@ -197,11 +197,10 @@ export class Guild extends Typegoose {
       const emojiQuery = this.emojis.map((emoji) => ({_id: emoji}));
       const memberQuery = this.members.map((member) => ({_id: member}));
       const channelQuery = this.channels.map((channel) => ({_id: channel}));
-      const roles = await Promise.all(lookupBulk(Role, roleQuery));
+      const roles = await lookupBulk(Role, roleQuery);
       const roleObjects = roles.map((role) => role.toRoleObject());
-      const emojis = await Promise.all(lookupBulk(Emoji, emojiQuery));
-      const emojiLookups = emojis.map((emoji) => emoji.toEmojiObject());
-      const emojiObjects = await Promise.all(emojiLookups);
+      const emojis = await lookupBulk(Emoji, emojiQuery);
+      const emojiObjects: any[] = emojis.map(async (emoji) => await emoji.toEmojiObject());
       let guildObject: IGuildObject = {
         id: this._id,
         name: this.name,
@@ -225,11 +224,10 @@ export class Guild extends Typegoose {
         widget_channel_id: this.widgetChannel,
       };
       if (more) {
-        const members = await Promise.all(lookupBulk(GuildMember, memberQuery));
-        const memberLookups = members.map((member) => member.toGuildMemberObject());
-        const memberObjects = await Promise.all(memberLookups);
+        const members = await lookupBulk(GuildMember, memberQuery);
+        const memberObjects = members.map(async (member) => await member.toGuildMemberObject());
         const channels = await Promise.all(lookupBulk(Channel, channelQuery));
-        const channelObjects = channels.map((channel) => channel.toChannelObject());
+        const channelObjects = channels.map(async (channel) => await channel.toChannelObject());
         const addition = {
           joined_at: this.created.toISOString(),
           large: this.memberCount >= 50,

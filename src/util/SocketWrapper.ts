@@ -114,20 +114,19 @@ export class SocketWrapper {
     this.send(WebsocketCodes.OPCODES.GUILD_SYNC, {});
   }
 
-  private onAuthorization(data: any): void {
+  private async onAuthorization(data: any): Promise<void> {
     logger.debug(`Received authorization data`);
     if (this.authenticated) {
       logger.debug(`Closing socket as we are already authenticated`);
       this.close(WebsocketCodes.CLOSECODES.ALREADY_AUTH);
     } else {
       if (this.isAuthenticationPacket(data)) {
-        Server.validateToken(data.token).then((user) => {
-          if (user) {
-            this.send(WebsocketCodes.OPCODES.DISPATCH, READY(user), "READY", data.compress);
-          } else {
-            this.close(WebsocketCodes.CLOSECODES.AUTH_FAILED);
-          }
-        });
+        const user = await Server.validateToken(data.token);
+        if (user) {
+          this.send(WebsocketCodes.OPCODES.DISPATCH, READY(user), "READY", data.compress);
+        } else {
+          this.close(WebsocketCodes.CLOSECODES.AUTH_FAILED);
+        }
       } else {
         console.log(data);
         this.close(WebsocketCodes.CLOSECODES.AUTH_FAILED);
