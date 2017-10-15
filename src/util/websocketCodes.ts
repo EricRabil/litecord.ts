@@ -1,0 +1,46 @@
+/* tslint:disable:object-literal-sort-keys */
+const CLOSECODES = {
+  UNKNOWN_ERROR: 4000,
+  UNKNOWN_OP: 4001,
+  DECODE_ERROR: 4002,
+  NOT_AUTH: 4003,
+  AUTH_FAILED: 4004,
+  ALREADY_AUTH: 4005,
+  INVALID_SEQ: 4007,
+  RATE_LIMITED: 4008,
+  SESSION_TIMEOUT: 4009,
+  INVALID_SHARD: 4010,
+  SHARDING_REQUIRED: 4011,
+};
+
+const CLOSEREASONS: {[key: number]: string} = {};
+CLOSEREASONS[CLOSECODES.UNKNOWN_ERROR] = "Unknown OP code";
+CLOSEREASONS[CLOSECODES.NOT_AUTH] = "Not authenticated";
+CLOSEREASONS[CLOSECODES.AUTH_FAILED] = "Failed to authenticate";
+CLOSEREASONS[CLOSECODES.ALREADY_AUTH] = "Already identified";
+CLOSEREASONS[CLOSECODES.INVALID_SEQ] = "Invalid sequence";
+CLOSEREASONS[CLOSECODES.RATE_LIMITED] = "You are being rate limited";
+CLOSEREASONS[CLOSECODES.SESSION_TIMEOUT] = "Session timed out";
+CLOSEREASONS[CLOSECODES.INVALID_SHARD] = "Invalid Shard";
+CLOSEREASONS[CLOSECODES.SHARDING_REQUIRED] = "Sharding required";
+export default new class WebsocketCodes {
+  public readonly OPCODES = {
+    DISPATCH: 0,
+    HEARTBEAT: 1,
+    IDENTIFY: 2,
+    STATUS_CODES: 3,
+    VOICE_STATE_UPDATE: 4,
+    VOICE_SERVER_PING: 5,
+    RESUME: 6,
+    RECONNECT: 7,
+    REQUEST_GUILD_MEMBERS: 8,
+    INVALID_SESSION: 9,
+    HELLO: 10,
+    HEARTBEAT_ACK: 11,
+    GUILD_SYNC: 12,
+  };
+
+  public readonly CLOSECODES = CLOSECODES;
+
+  public readonly CLOSEREASONS = CLOSEREASONS;
+}();
