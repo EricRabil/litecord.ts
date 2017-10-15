@@ -14,15 +14,16 @@ const HELLO: object = {
   heartbeat_interval: 12500,
 };
 
-function READY(user: User & Document): object {
-  const payload = {
+async function READY(user: User & Document): Promise<object> {
+  let payload = {
     v: 6,
     _trace: ["big-sexy-boy"],
     private_channels: [],
-    guilds: [],
+    guilds: (await user.getGuilds()),
     relationships: [],
     user: user.toUserObject(),
   };
+  payload = Object.assign(payload, user.getMetadata());
   return payload;
 }
 
@@ -90,7 +91,7 @@ export class SocketWrapper {
           break;
       }
     } else {
-      logger.debug(`OPCode is not a number, what the fuck???`);
+      this.unknownOPCode(opcode);
     }
   }
 
@@ -123,12 +124,11 @@ export class SocketWrapper {
       if (this.isAuthenticationPacket(data)) {
         const user = await Server.validateToken(data.token);
         if (user) {
-          this.send(WebsocketCodes.OPCODES.DISPATCH, READY(user), "READY", data.compress);
+          this.send(WebsocketCodes.OPCODES.DISPATCH, await READY(user), "READY");
         } else {
           this.close(WebsocketCodes.CLOSECODES.AUTH_FAILED);
         }
       } else {
-        console.log(data);
         this.close(WebsocketCodes.CLOSECODES.AUTH_FAILED);
       }
     }
@@ -152,10 +152,17 @@ export class SocketWrapper {
 
   private async send(opcode: number,
                      data: any = null,
-                     eventName?: string,
+                     eventName: any = null,
                      compress: boolean = this.compression): Promise<void> {
-    data = {op: opcode, d: data, t: eventName, s: this.sentSequence};
-    this.sentSequence++;
+    data = {
+      op: opcode,
+      d: data,
+      t: eventName,
+      s: opcode === WebsocketCodes.OPCODES.HEARTBEAT_ACK ? null : this.sentSequence,
+    };
+    if (opcode !== WebsocketCodes.OPCODES.HEARTBEAT_ACK) {
+      this.sentSequence++;
+    }
     const jsonData = JSON.stringify(data);
     logger.debug(`Sending data ${jsonData} (compression: ${this.compression})`);
     if (this.compression) {

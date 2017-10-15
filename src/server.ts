@@ -21,18 +21,21 @@ import UserModel from "./util/schema/User";
 const hat = require("hat");
 
 const logger = new Logger();
-process.on("unhandledRejection", (rejection) => {
-  logger.printError(rejection);
-});
+process.on("unhandledRejection", logger.printError);
 
-function createGuild(name: string, ownerID: string): InstanceType<GuildModel> {
+async function createGuild(name: string, ownerID: string): Promise<InstanceType<GuildModel>> {
+  const user = await UserModel.findById(ownerID);
+  if (!user) {
+    throw new Error("No user with the provided ID exists");
+  }
   const guild = new Guild();
   guild.name = name;
   guild.ownerID = ownerID;
   guild.region = "RUSSIA";
-  guild.memberCount = 1;
   guild.members.push(ownerID);
-  guild.save();
+  await guild.save();
+  user.guilds.push(guild._id);
+  await user.save();
   return guild;
 }
 

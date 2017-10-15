@@ -1,11 +1,13 @@
-/* tslint:disable:object-literal-sort-keys */
+/* tslint:disable:object-literal-sort-keys max-line-length */
 import * as bcrypt from "bcrypt";
 import * as jsonwebtoken from "jsonwebtoken";
 import * as mongoose from "mongoose";
-import {arrayProp, instanceMethod, InstanceType, ModelType, prop, staticMethod, Typegoose} from "typegoose";
+import {arrayProp, instanceMethod, InstanceType, ModelType, pre, prop, Ref, staticMethod, Typegoose} from "typegoose";
 import Server from "../../server";
 import Guild from "./Guild";
 import {IGuildObject} from "./Guild";
+import {UserMetadata} from "./User/UserMetadata";
+import UserMetadataModel from "./User/UserMetadata";
 
 export interface IUserObject {
   id: string;
@@ -17,6 +19,8 @@ export interface IUserObject {
   verified?: boolean;
   email?: string;
 }
+
+export type SettingsEntry = string | number | {[key: string]: SettingsEntry} | boolean | Array<string | number | boolean>;
 
 export class User extends Typegoose {
 
@@ -36,6 +40,12 @@ export class User extends Typegoose {
 
   @prop({required: true})
   public discriminator: number;
+
+  @arrayProp({items: String, required: true, default: []})
+  public guilds: string[];
+
+  @prop()
+  public metadata: UserMetadata = new UserMetadata();
 
   @instanceMethod
   public async setPassword(this: InstanceType<User>, password: string): Promise<void> {
@@ -91,10 +101,34 @@ export class User extends Typegoose {
 
   @instanceMethod
   public async getGuilds(this: InstanceType<User>): Promise<IGuildObject[]> {
-    const guilds = await Guild.find();
-    const serializations: Array<Promise<IGuildObject>> = [];
-    guilds.forEach((guild) => serializations.push(guild.toGuildObject()));
-    return Promise.all(serializations);
+    const guilds = this.guilds.map((guild) => Guild.findById(guild)).map(async (guild) => {
+      if (guild) {
+        const guildInstance = await guild;
+        if (guildInstance) {
+          return await guildInstance.toGuildObject();
+        }
+      }
+      return undefined;
+    }).filter((guild) => !!guild);
+    const guildData = (await Promise.all(guilds)).filter((guild) => !!guild);
+    return (guildData as any);
+  }
+
+  @instanceMethod
+  public getMetadata(this: InstanceType<User>): object {
+    const toUnderscore = (obj: {[key: string]: any}) => {
+      const newObject: {[key: string]: any} = {};
+      Object.keys(obj).forEach((key) => {
+        const newKey = key.replace(/\.?([A-Z])/g, (x, y) => {
+          return "_" + y.toLowerCase();
+        }).replace(/^_/, "");
+        newObject[newKey] = obj[key];
+      });
+      return newObject;
+    };
+    const meta: {[key: string]: any} = toUnderscore(this.metadata);
+    meta.user_settings = toUnderscore(meta.user_settings);
+    return meta;
   }
 }
 

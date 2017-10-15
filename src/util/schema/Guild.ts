@@ -73,7 +73,7 @@ export class Guild extends Typegoose {
   public afkChannelID: string;
 
   @prop()
-  public afkTimeout: number;
+  public afkTimeout: number = 500;
 
   @prop()
   public embedsEnabled: boolean = false;
@@ -170,9 +170,6 @@ export class Guild extends Typegoose {
   @prop()
   public large: boolean = false;
 
-  @prop()
-  public memberCount: number = 0;
-
   /**
    * Array of guild member IDs, must be converted to guild member objects
    *
@@ -230,9 +227,9 @@ export class Guild extends Typegoose {
         const channelObjects = channels.map(async (channel) => await channel.toChannelObject());
         const addition = {
           joined_at: this.created.toISOString(),
-          large: this.memberCount >= 50,
+          large: this.members.length >= 50,
           unavailable: false,
-          member_count: this.memberCount,
+          member_count: this.members.length,
           voice_states: [],
           members: memberObjects,
           channels: channelObjects,

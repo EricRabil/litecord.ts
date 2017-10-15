@@ -23,14 +23,12 @@ export class SocketManager {
       const query: {[key: string]: string} = {};
       if (request.url) {
         queryRaw = request.url.split("&")
-        .map((q) => {
-          const raw = q.split("=");
-          const map = {
-            key: raw[0],
-            value: raw.slice(1).join(),
-          };
-          return map;
-          });
+        .map((q) =>
+            ({
+              key: q.substring(0, q.indexOf("=")),
+              value: q.substring(q.indexOf("=") + 1),
+            }),
+        );
         queryRaw.forEach((queryMap) => {
           if (queryMap.key.startsWith("/?")) {
             queryMap.key = queryMap.key.substring(2);
@@ -39,7 +37,7 @@ export class SocketManager {
         });
       }
       if (!query.compress) {
-        query.compress = "mygirl";
+        query.compress = "dontcompressthanks";
       }
       console.log(query.compress);
       this.connections.push(new SocketWrapper(socket, query.compress === "zlib-stream"));
