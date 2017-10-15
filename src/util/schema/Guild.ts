@@ -192,66 +192,57 @@ export class Guild extends Typegoose {
   public channels: string[] = [];
 
   @instanceMethod
-  public toGuildObject(this: InstanceType<Guild>, more: boolean = false): Promise<IGuildObject> {
-    return new Promise((resolve, reject) => {
+  public async toGuildObject(this: InstanceType<Guild>, more: boolean = false): Promise<IGuildObject> {
       const roleQuery = this.roles.map((role) => ({_id: role}));
       const emojiQuery = this.emojis.map((emoji) => ({_id: emoji}));
       const memberQuery = this.members.map((member) => ({_id: member}));
       const channelQuery = this.channels.map((channel) => ({_id: channel}));
-      Promise.all(lookupBulk(Role, roleQuery)).then((roles) => {
-        const roleObjects = roles.map((role) => role.toRoleObject());
-        Promise.all(lookupBulk(Emoji, emojiQuery)).then((emojis) => {
-          const emojiLookups = emojis.map((emoji) => emoji.toEmojiObject());
-          Promise.all(emojiLookups).then((emojiObjects) => {
-            let guildObject: IGuildObject = {
-              id: this._id,
-              name: this.name,
-              icon: this.icon,
-              splash: this.splash,
-              owner_id: this.ownerID,
-              region: this.region,
-              afk_channel_id: this.afkChannelID,
-              afk_timeout: this.afkTimeout,
-              embed_enabled: this.embedsEnabled,
-              embed_channel_id: this.embedChannel,
-              verification_level: this.verificationLevel,
-              default_message_notifications: this.defaultMessageNotifications,
-              explicit_content_filter: this.explicitContentFilter,
-              roles: roleObjects,
-              emojis: emojiObjects,
-              features: this.features,
-              mfa_level: this.mfaLevel,
-              application_id: this.applicationID,
-              widget_enabled: this.widgetEnabled,
-              widget_channel_id: this.widgetChannel,
-            };
-            if (more) {
-              Promise.all(lookupBulk(GuildMember, memberQuery)).then((members) => {
-                const memberLookups = members.map((member) => member.toGuildMemberObject());
-                Promise.all(memberLookups).then((memberObjects) => {
-                  Promise.all(lookupBulk(Channel, channelQuery)).then((channels) => {
-                    const channelObjects = channels.map((channel) => channel.toChannelObject());
-                    const addition = {
-                      joined_at: this.created.toISOString(),
-                      large: this.memberCount >= 50,
-                      unavailable: false,
-                      member_count: this.memberCount,
-                      voice_states: [],
-                      members: memberObjects,
-                      channels: channelObjects,
-                    };
-                    guildObject = Object.assign(guildObject, addition);
-                    resolve(guildObject);
-                  });
-                });
-              });
-            } else {
-              resolve(guildObject);
-            }
-          });
-        });
-      });
-    });
+      const roles = await Promise.all(lookupBulk(Role, roleQuery));
+      const roleObjects = roles.map((role) => role.toRoleObject());
+      const emojis = await Promise.all(lookupBulk(Emoji, emojiQuery));
+      const emojiLookups = emojis.map((emoji) => emoji.toEmojiObject());
+      const emojiObjects = await Promise.all(emojiLookups);
+      let guildObject: IGuildObject = {
+        id: this._id,
+        name: this.name,
+        icon: this.icon,
+        splash: this.splash,
+        owner_id: this.ownerID,
+        region: this.region,
+        afk_channel_id: this.afkChannelID,
+        afk_timeout: this.afkTimeout,
+        embed_enabled: this.embedsEnabled,
+        embed_channel_id: this.embedChannel,
+        verification_level: this.verificationLevel,
+        default_message_notifications: this.defaultMessageNotifications,
+        explicit_content_filter: this.explicitContentFilter,
+        roles: roleObjects,
+        emojis: emojiObjects,
+        features: this.features,
+        mfa_level: this.mfaLevel,
+        application_id: this.applicationID,
+        widget_enabled: this.widgetEnabled,
+        widget_channel_id: this.widgetChannel,
+      };
+      if (more) {
+        const members = await Promise.all(lookupBulk(GuildMember, memberQuery));
+        const memberLookups = members.map((member) => member.toGuildMemberObject());
+        const memberObjects = await Promise.all(memberLookups);
+        const channels = await Promise.all(lookupBulk(Channel, channelQuery));
+        const channelObjects = channels.map((channel) => channel.toChannelObject());
+        const addition = {
+          joined_at: this.created.toISOString(),
+          large: this.memberCount >= 50,
+          unavailable: false,
+          member_count: this.memberCount,
+          voice_states: [],
+          members: memberObjects,
+          channels: channelObjects,
+        };
+        guildObject = Object.assign(guildObject, addition);
+        return guildObject;
+      }
+      return guildObject;
   }
 }
 

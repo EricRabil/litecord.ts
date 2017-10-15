@@ -47,20 +47,19 @@ export class GuildMember extends Typegoose {
   public mute: boolean = false;
 
   @instanceMethod
-  public toGuildMemberObject(this: InstanceType<GuildMember>): Promise<IGuildMemberObject> {
-    return User.findById(this.user).then((user) => {
-      const obj: IGuildMemberObject = {
-        nick: this.nick,
-        roles: this.roles,
-        joined_at: this.joinedAt.toISOString(),
-        deaf: this.deaf,
-        mute: this.mute,
-      };
-      if (user) {
-        obj.user = user.toUserObject();
-      }
-      return obj;
-    });
+  public async toGuildMemberObject(this: InstanceType<GuildMember>): Promise<IGuildMemberObject> {
+    const user = await User.findById(this.user);
+    const obj: IGuildMemberObject = {
+      nick: this.nick,
+      roles: this.roles,
+      joined_at: this.joinedAt.toISOString(),
+      deaf: this.deaf,
+      mute: this.mute,
+    };
+    if (user) {
+      obj.user = user.toUserObject();
+    }
+    return obj;
   }
 }
 

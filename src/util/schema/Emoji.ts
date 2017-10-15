@@ -42,28 +42,24 @@ export class Emoji extends Typegoose {
   public managed: boolean = false;
 
   @instanceMethod
-  public toEmojiObject(this: InstanceType<Emoji>): Promise<IEmojiObject> {
-    return new Promise((resolve, reject) => {
-      const emojiObject: IEmojiObject = {
-        id: this._id,
-        name: this.name,
-        roles: this.roles,
-        require_colons: this.requireColons,
-        managed: this.managed,
-      };
-      if (this.user) {
-        User.findById(this.user).then((doc) => {
-          if (!doc) {
-            resolve(emojiObject);
-          } else {
-            emojiObject.user = doc.toUserObject();
-            resolve(emojiObject);
-          }
-        });
+  public async toEmojiObject(this: InstanceType<Emoji>): Promise<IEmojiObject> {
+    const emojiObject: IEmojiObject = {
+      id: this._id,
+      name: this.name,
+      roles: this.roles,
+      require_colons: this.requireColons,
+      managed: this.managed,
+    };
+    if (this.user) {
+      const doc = await User.findById(this.user);
+      if (!doc) {
+        return emojiObject;
       } else {
-        return resolve(emojiObject);
+        emojiObject.user = doc.toUserObject();
+        return emojiObject;
       }
-    });
+    }
+    return emojiObject;
   }
 }
 

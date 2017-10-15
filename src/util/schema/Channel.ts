@@ -106,43 +106,41 @@ export class Channel extends Typegoose {
  public parentID?: string;
 
  @instanceMethod
- public toChannelObject(this: InstanceType<Channel>): Promise<IChannelObject> {
-   return new Promise((resolve, reject) => {
-     if (this.recipients) {
-       const lookups: Array<Promise<InstanceType<User> | null>> = [];
-       this.recipients.forEach((recipient) => {
-         lookups.push(UserModel.findById(recipient).then((user) => user));
-       });
-       Promise.all(lookups).then((users) => {
-         const userObjs: Array<IUserObject | undefined> = users.map((user) => {
-           if (user) {
-             return user.toUserObject();
-           } else {
-             return undefined;
-           }
-         });
-         const userObjsFiltered: any[] = userObjs.filter((user) => !!user);
-         const channelObject: IChannelObject = {
-           id: this._id,
-           type: this.type,
-           guild_id: this.guildID,
-           position: this.channelPosition,
-           permission_overwrites: this.permissionOverwrites,
-           name: this.name,
-           topic: this.topic,
-           nsfw: this.nsfw,
-           last_message_id: this.lastMessage,
-           bitrate: this.bitrate,
-           user_limit: this.userLimit,
-           recipients: userObjsFiltered,
-           icon: this.icon,
-           owner_id: this.ownerID,
-           application_id: this.applicationID,
-           parent_id: this.parentID,
-         };
-       });
-     }
-   });
+ public async toChannelObject(this: InstanceType<Channel>): Promise<IChannelObject> {
+    const channelObject: IChannelObject = {
+      id: this._id,
+      type: this.type,
+      guild_id: this.guildID,
+      position: this.channelPosition,
+      permission_overwrites: this.permissionOverwrites,
+      name: this.name,
+      topic: this.topic,
+      nsfw: this.nsfw,
+      last_message_id: this.lastMessage,
+      bitrate: this.bitrate,
+      user_limit: this.userLimit,
+      icon: this.icon,
+      owner_id: this.ownerID,
+      application_id: this.applicationID,
+      parent_id: this.parentID,
+    };
+    if (this.recipients) {
+      const lookups: Array<Promise<InstanceType<User> | null>> = [];
+      this.recipients.forEach((recipient) => {
+        lookups.push(UserModel.findById(recipient).then((user) => user));
+      });
+      const users: Array<InstanceType<User> | null> = [] = await Promise.all(lookups);
+      const userObjs: Array<IUserObject | undefined> = users.map((user) => {
+        if (user) {
+          return user.toUserObject();
+        } else {
+          return;
+        }
+      });
+      const userObjsFiltered: any[] = userObjs.filter((user) => !!user);
+      channelObject.recipients = userObjsFiltered;
+    }
+    return channelObject;
  }
 }
 

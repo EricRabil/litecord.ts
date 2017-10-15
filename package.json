@@ -1,5 +1,5 @@
 {
-  "name": "litecord.ts",
+  "name": "discord.ts",
   "version": "1.0.0",
   "description": "Discord API in TypeScript",
   "main": "index.js",
@@ -10,7 +10,7 @@
     "no"
   ],
   "author": "no",
-  "license": "MIT",
+  "license": "ISC",
   "dependencies": {
     "@types/bcrypt": "^1.0.0",
     "@types/body-parser": "^1.16.5",
@@ -18,6 +18,7 @@
     "@types/fs-extra": "^4.0.2",
     "@types/jsonwebtoken": "^7.2.3",
     "@types/mongoose": "^4.7.23",
+    "@types/mz": "^0.0.32",
     "@types/readline-sync": "^1.4.2",
     "@types/ws": "^3.2.0",
     "bcrypt": "^1.0.3",
@@ -28,8 +29,9 @@
     "express": "^4.16.2",
     "fs-extra": "^4.0.2",
     "hat": "^0.0.3",
-    "jsonwebtoken": "^8.1.0",
+    "jwt-then": "^0.6.0",
     "mongoose": "^4.12.1",
+    "mz": "^2.7.0",
     "readline-sync": "^1.4.7",
     "typegoose": "^3.5.1",
     "ws": "^3.2.0"

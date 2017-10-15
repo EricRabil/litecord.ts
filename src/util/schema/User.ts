@@ -21,10 +21,8 @@ export interface IUserObject {
 export class User extends Typegoose {
 
   @staticMethod
-  public static authenticate(this: ModelType<User>, token: string): Promise<boolean> {
-    return new Promise((resolve, reject) => {
-      // this.findOne
-    });
+  public static async authenticate(this: ModelType<User>, token: string): Promise<boolean> {
+    return false;
   }
 
   @prop({required: true})
@@ -40,48 +38,41 @@ export class User extends Typegoose {
   public discriminator: number;
 
   @instanceMethod
-  public setPassword(this: InstanceType<User>, password: string): Promise<void> {
-    return new Promise((resolve, reject) => {
-      bcrypt.genSalt(10).then((salt) => {
-        bcrypt.hash(password, salt).then((hash) => {
-          this.password = hash;
-          resolve();
-        }).catch(reject);
-      }).catch(reject);
-    });
+  public async setPassword(this: InstanceType<User>, password: string): Promise<void> {
+    const salt = await bcrypt.genSalt(10);
+    const hash = await bcrypt.hash(password, salt);
+    this.password = hash;
+    return;
   }
 
   @instanceMethod
-  public comparePasswords(this: InstanceType<User>, password: string): Promise<boolean> {
+  public async comparePasswords(this: InstanceType<User>, password: string): Promise<boolean> {
     return bcrypt.compare(password, this.password);
   }
 
   @instanceMethod
-  public newDiscriminator(this: InstanceType<User>): Promise<void> {
-    return new Promise((resolve, reject) => {
-      const rollTheDice = (): void => {
-        const discrim = Math.floor(Math.random() * 9999);
-        this.collection.findOne({username: this.username, discriminator: discrim}).then((docs) => {
-          if (docs) {
-            rollTheDice();
-          } else {
-            this.discriminator = discrim;
-            resolve();
-          }
-        }).catch(reject);
-      };
-      rollTheDice();
-    });
+  public async newDiscriminator(this: InstanceType<User>): Promise<number> {
+    const rollTheDice = async (): Promise<number> => {
+      const discrim = Math.floor(Math.random() * 9999);
+      const docs = await this.collection.findOne({username: this.username, discriminator: discrim});
+      if (docs) {
+        return rollTheDice();
+      } else {
+        this.discriminator = discrim;
+        return this.discriminator;
+      }
+    };
+    return rollTheDice();
   }
 
   @instanceMethod
-  public generateToken(this: InstanceType<User>): Promise<string> {
+  public async generateToken(this: InstanceType<User>): Promise<string> {
     return Server.generateToken(this);
   }
 
   @instanceMethod
-  public validateToken(this: InstanceType<User>, token: string): Promise<boolean> {
-    return Server.validateToken(token).then((validated) => !!validated);
+  public async validateToken(this: InstanceType<User>, token: string): Promise<boolean> {
+    return await !!Server.validateToken(token);
   }
 
   @instanceMethod
@@ -99,14 +90,11 @@ export class User extends Typegoose {
   }
 
   @instanceMethod
-  public getGuilds(this: InstanceType<User>): Promise<IGuildObject[]> {
-    return new Promise((resolve, reject) => {
-      Guild.find().then((guilds) => {
-        const serializations: Array<Promise<IGuildObject>> = [];
-        guilds.forEach((guild) => serializations.push(guild.toGuildObject()));
-        resolve(Promise.all(serializations));
-      });
-    });
+  public async getGuilds(this: InstanceType<User>): Promise<IGuildObject[]> {
+    const guilds = await Guild.find();
+    const serializations: Array<Promise<IGuildObject>> = [];
+    guilds.forEach((guild) => serializations.push(guild.toGuildObject()));
+    return Promise.all(serializations);
   }
 }
 

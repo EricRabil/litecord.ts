@@ -1,7 +1,7 @@
 /* tslint:disable:object-literal-sort-keys */
 import {Document} from "mongoose";
+import * as zlib from "mz/zlib";
 import * as ws from "ws";
-import * as zlib from "zlib";
 import Server from "../server";
 import Logger from "../util/Logger";
 import {User} from "../util/schema/User";
@@ -135,49 +135,36 @@ export class SocketWrapper {
     }
   }
 
-  private close(code: number): Promise<void> {
-    return new Promise((resolve, reject) => {
-      if (!WebsocketCodes.CLOSEREASONS[code]) {
-        return reject(new Error("Invalid close code"));
+  private async close(code: number): Promise<void> {
+    if (!WebsocketCodes.CLOSEREASONS[code]) {
+      throw new Error("Invalid close code");
+    }
+    this.socket.close(code, WebsocketCodes.CLOSEREASONS[code]);
+    return;
+  }
+
+  private async _send(data: any): Promise<void> {
+    this.socket.send(data, (e) => {
+      if (e) {
+        throw e;
       }
-      this.socket.close(code, WebsocketCodes.CLOSEREASONS[code]);
-      resolve();
     });
   }
 
-  private _send(data: any): Promise<void> {
-    return new Promise((resolve, reject) => {
-      this.socket.send(data, (e) => {
-        if (e) {
-          reject(e);
-        } else {
-          resolve();
-        }
-      });
-    });
-  }
-
-  private send(opcode: number,
-               data: any = null,
-               eventName?: string,
-               compress: boolean = this.compression): Promise<void> {
-    return new Promise((resolve, reject) => {
-      data = {op: opcode, d: data, t: eventName, s: this.sentSequence};
-      this.sentSequence++;
-      const jsonData = JSON.stringify(data);
-      logger.debug(`Sending data ${jsonData} (compression: ${this.compression})`);
-      if (this.compression) {
-        zlib.deflate(Buffer.from(jsonData), (e, result) => {
-          if (e) {
-            reject(e);
-          } else {
-            this._send(result).then(resolve).catch(reject);
-          }
-        });
-      } else {
-        this._send(jsonData).then(resolve).catch(reject);
-      }
-    });
+  private async send(opcode: number,
+                     data: any = null,
+                     eventName?: string,
+                     compress: boolean = this.compression): Promise<void> {
+    data = {op: opcode, d: data, t: eventName, s: this.sentSequence};
+    this.sentSequence++;
+    const jsonData = JSON.stringify(data);
+    logger.debug(`Sending data ${jsonData} (compression: ${this.compression})`);
+    if (this.compression) {
+      const result = await zlib.deflate(Buffer.from(jsonData));
+      await this._send(result);
+    } else {
+      await this._send(jsonData);
+    }
   }
 
   private isAuthenticationPacket(data: any): data is IAuthorizationPacket {

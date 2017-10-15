@@ -2,7 +2,7 @@ import * as bodyParser from "body-parser";
 import * as cors from "cors";
 import * as express from "express";
 import * as fs from "fs-extra";
-import * as jwt from "jsonwebtoken";
+import * as jwt from "jwt-then";
 import * as mongoose from "mongoose";
 import * as path from "path";
 import * as realReadline from "readline";
@@ -54,60 +54,42 @@ export default class Server {
     };
   }
 
-  public static generateToken(user: InstanceType<User>): Promise<string> {
-    return new Promise((resolve, reject) => {
-      const payload = this.generatePayload(user);
-      jwt.sign(payload, this.config.secret, (e, token) => {
-        if (e) {
-          reject(e);
-        } else {
-          resolve(token);
-        }
-      });
-    });
+  public static async generateToken(user: InstanceType<User>): Promise<string> {
+    const payload = this.generatePayload(user);
+    return jwt.sign(payload, this.config.secret, {});
   }
 
-  public static validateToken(token: string): Promise<(User & mongoose.Document) | null> {
-    return new Promise((resolve, reject) => {
-      jwt.verify(token, this.config.secret, (err, verified: {
-          expiration: number,
-          passwordHash: string,
-          userID: string,
-        }) => {
-        if (err) {
-          logger.printError(err);
-          return resolve();
+  public static async validateToken(token: string): Promise<(User & mongoose.Document) | undefined> {
+    let verified: string | any = await jwt.verify(token, this.config.secret);
+    if (typeof verified === "string") {
+      try {
+        verified = JSON.parse(verified);
+      } catch (e) {
+        logger.printError(e);
+        return;
+      }
+    }
+    if (typeof verified === "object") {
+      if (!verified.expiration || !verified.userID || !verified.passwordHash) {
+        return;
+      }
+      if (Date.now() > verified.expiration) {
+        return;
+      } else {
+        const user = await UserModel.findOne({_id: verified.userID});
+        if (!user) {
+          logger.debug(`Couldn't find user ID in database: ${verified.userID}`);
+          return;
         }
-        if (typeof verified === "string") {
-          try {
-            verified = JSON.parse(verified);
-          } catch (e) {
-            logger.printError(e);
-            resolve();
-            return;
-          }
+        console.log(`${(user._id.equals(verified.userID))}`);
+        console.log(`${(verified.passwordHash === user.password)}`);
+        if ((user._id.equals(verified.userID)) && (verified.passwordHash === user.password)) {
+          return user;
+        } else {
+          return;
         }
-        if (typeof verified === "object") {
-          if (Date.now() > verified.expiration) {
-            resolve();
-          } else {
-            UserModel.findOne({_id: verified.userID}).then((user) => {
-              if (!user) {
-                logger.debug(`Couldn't find user ID in database: ${verified.userID}`);
-                return resolve();
-              }
-              console.log(`${(user._id.equals(verified.userID))}`);
-              console.log(`${(verified.passwordHash === user.password)}`);
-              if ((user._id.equals(verified.userID)) && (verified.passwordHash === user.password)) {
-                resolve(user);
-              } else {
-                resolve();
-              }
-            });
-          }
-        }
-      });
-    });
+      }
+    }
   }
 
   private static cfg: Config;
@@ -132,40 +114,7 @@ export default class Server {
   public socketManager: SocketManager;
 
   constructor() {
-    logger.log("Bootstrapping config");
-    Server.configBootstrap(path.join(__dirname, "config.json"));
-    logger.log("Setting up express");
-    this.express = express();
-    this.express.use(cors());
-    this.express.use(bodyParser.json());
-    logger.log("Connecting to mongo");
-    mongoose.connect("mongodb://localhost/discordts", {useMongoClient: true}).then(() => {
-      logger.log("Loading routes (asynchronously, may load later)");
-      this.load(path.join(__dirname, "routes")).then(() => {
-        this.express.listen(3500);
-        logger.log("Express is listening on port 3500 - Starting socket server");
-        this.socketManager = new SocketManager(this);
-        logger.log("Starting JavaScript shell...");
-        realReadline.createInterface({input: process.stdin, output: process.stdout}).on("line", (i) => {
-          try {
-            const output = eval(i);
-            output instanceof Promise
-              ? output.then((a) => {
-                console.log("Promise Resolved");
-                console.log(util.inspect(a, {depth: 0}));
-              }).catch((e) => {
-                console.log("Promise Rejected");
-                console.log(e.stack);
-              })
-              : output instanceof Object
-                ? console.log(util.inspect(output, {depth: 0}))
-                : console.log(output);
-          } catch (err) {
-            console.log(err.stack);
-          }
-        });
-      });
-    });
+    this.loadServer();
   }
 
   public get gatewayURL(): string {
@@ -180,30 +129,62 @@ export default class Server {
     return Server.config;
   }
 
+  private async loadServer(): Promise<void> {
+    logger.log("Bootstrapping config");
+    Server.configBootstrap(path.join(__dirname, "config.json"));
+    logger.log("Setting up express");
+    this.express = express();
+    this.express.use(cors());
+    this.express.use(bodyParser.json());
+    logger.log("Connecting to mongo");
+    await mongoose.connect("mongodb://localhost/discordts", {useMongoClient: true});
+    logger.log("Loading routes (asynchronously, may load later)");
+    await this.load(path.join(__dirname, "routes"));
+    this.express.listen(3500);
+    logger.log("Express is listening on port 3500 - Starting socket server");
+    this.socketManager = new SocketManager(this);
+    logger.log("Starting JavaScript shell...");
+    realReadline.createInterface({input: process.stdin, output: process.stdout}).on("line", (i) => {
+      try {
+        const output = eval(i);
+        output instanceof Promise
+          ? output.then((a) => {
+            console.log("Promise Resolved");
+            console.log(util.inspect(a, {depth: 0}));
+          }).catch((e) => {
+            console.log("Promise Rejected");
+            console.log(e.stack);
+          })
+          : output instanceof Object
+            ? console.log(util.inspect(output, {depth: 0}))
+            : console.log(output);
+      } catch (err) {
+        console.log(err.stack);
+      }
+    });
+  }
+
   private isRoute(object: any): object is Route {
     return "path" in object && "requestHandler" in object;
   }
 
-  private load(directory: string): Promise<void> {
-    return fs.readdir(directory).then((contents) => {
-      const statLookups = new Array<Promise<fs.Stats>>();
-      contents.forEach((content) => {
-        const contentPath = path.join(directory, content);
-        statLookups.push(fs.stat(contentPath));
-        fs.stat(contentPath).then((stats) => {
-          if (stats.isDirectory()) {
-            this.load(contentPath);
-          } else {
-            if (content.endsWith(".js")) {
-              const loadedRoute = new (require(contentPath).default)(this);
-              if (this.isRoute(loadedRoute)) {
-                this.express[loadedRoute.requestMethod](loadedRoute.path, loadedRoute.requestHandler());
-                logger.debug(`Loaded route ${loadedRoute.requestMethod} ${loadedRoute.path}`);
-              }
-            }
+  private async load(directory: string): Promise<void> {
+    const contents = await fs.readdir(directory);
+    const statLookups = new Array<Promise<fs.Stats>>();
+    contents.forEach(async (content) => {
+      const contentPath = path.join(directory, content);
+      const stats = await fs.stat(contentPath);
+      if (stats.isDirectory()) {
+        this.load(contentPath);
+      } else {
+        if (content.endsWith(".js")) {
+          const loadedRoute = new (require(contentPath).default)(this);
+          if (this.isRoute(loadedRoute)) {
+            this.express[loadedRoute.requestMethod](loadedRoute.path, loadedRoute.requestHandler());
+            logger.debug(`Loaded route ${loadedRoute.requestMethod} ${loadedRoute.path}`);
           }
-        });
-      });
+        }
+      }
     });
   }
 
