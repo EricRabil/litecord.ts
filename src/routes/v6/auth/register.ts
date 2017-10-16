@@ -26,7 +26,7 @@ export default class Register implements Route {
     const body = req.body;
     if (this.isValid(body)) {
       if (ENABLED_DOMAIN.filter((d) => body.email.endsWith(d)).length === 0) {
-        next();
+        res.status(400).send({email: ["Email is disallowed"]});
         return;
       }
       const user = await User.findOne({email: body.email});
