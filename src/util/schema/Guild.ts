@@ -201,6 +201,18 @@ export class Guild extends Typegoose {
   }
 
   @instanceMethod
+  public async getMembers(this: InstanceType<Guild>): Promise<Array<InstanceType<GuildMemberModel>>> {
+    const members: Array<InstanceType<GuildMemberModel>> = [];
+    await this.members.forEach(async (member) => {
+      const user = await GuildMember.findById(member);
+      if (user) {
+        members.push(user);
+      }
+    });
+    return members;
+  }
+
+  @instanceMethod
   public async toGuildObject(this: InstanceType<Guild>, more: boolean = false): Promise<IGuildObject> {
       const toChannelObject = (channel: ChannelModel): Promise<IChannelObject> =>
             ChannelModel.prototype.toChannelObject.bind(channel)();
