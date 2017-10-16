@@ -65,23 +65,23 @@ export class Guild extends Typegoose {
   @prop({default: null})
   public icon: string;
 
-  @prop()
+  @prop({default: null})
   public splash: string;
 
-  @prop()
+  @prop({required: true})
   public ownerID: string;
 
   @prop({default: "us-central"})
   public region: string;
 
-  @prop()
+  @prop({default: null})
   public afkChannelID: string;
 
-  @prop()
-  public afkTimeout: number = 500;
+  @prop({default: 500})
+  public afkTimeout: number;
 
-  @prop()
-  public embedsEnabled: boolean = false;
+  @prop({default: false})
+  public embedsEnabled: boolean;
 
   @prop()
   public embedChannel: string;
@@ -101,8 +101,8 @@ export class Guild extends Typegoose {
    * @type {(0 | 1 | 2 | 3 | 4)}
    * @memberof Guild
    */
-  @prop()
-  public verificationLevel: 0 | 1 | 2 | 3 | 4 = 0;
+  @prop({default: 0})
+  public verificationLevel: 0 | 1 | 2 | 3 | 4;
 
   /**
    * Default notification scope
@@ -113,8 +113,8 @@ export class Guild extends Typegoose {
    * @type {(0 | 1)}
    * @memberof Guild
    */
-  @prop()
-  public defaultMessageNotifications: 0 | 1 = 1;
+  @prop({default: 1})
+  public defaultMessageNotifications: 0 | 1;
 
   /**
    * Amount of content to filter bad words from
@@ -126,8 +126,8 @@ export class Guild extends Typegoose {
    * @type {(0 | 1 | 2)}
    * @memberof Guild
    */
-  @prop()
-  public explicitContentFilter: 0 | 1 | 2 = 0;
+  @prop({default: 0})
+  public explicitContentFilter: 0 | 1 | 2;
 
   /**
    * Array of roles - must be converted to an array of role objects
@@ -136,7 +136,7 @@ export class Guild extends Typegoose {
    * @type {string[]}
    * @memberof Guild
    */
-  @arrayProp({items: String})
+  @arrayProp({items: String, default: []})
   public roles: string[];
 
   /**
@@ -146,11 +146,11 @@ export class Guild extends Typegoose {
    * @type {string[]}
    * @memberof Guild
    */
-  @arrayProp({items: String})
-  public emojis: string[] = [];
+  @arrayProp({items: String, default: []})
+  public emojis: string[];
 
-  @arrayProp({items: String})
-  public features: string[] = [];
+  @arrayProp({items: String, default: []})
+  public features: string[];
 
   /**
    * Level of 2FA to require
@@ -160,10 +160,10 @@ export class Guild extends Typegoose {
    * @type {(0 | 1)}
    * @memberof Guild
    */
-  @prop()
-  public mfaLevel: 0 | 1 = 0;
+  @prop({default: 0})
+  public mfaLevel: 0 | 1;
 
-  @prop()
+  @prop({default: null})
   public applicationID?: string;
 
   @prop()
