@@ -3,7 +3,7 @@ import * as mongoose from "mongoose";
 import {arrayProp, instanceMethod, InstanceType, ModelType, prop, staticMethod, Typegoose} from "typegoose";
 import Server from "../../server";
 import User from "./User";
-import {IUserObject} from "./User";
+import {IUserObject, User as UserModel} from "./User";
 
 export interface IGuildMemberObject {
   user?: IUserObject;
@@ -60,6 +60,12 @@ export class GuildMember extends Typegoose {
       obj.user = user.toUserObject();
     }
     return obj;
+  }
+
+  @instanceMethod
+  public async getUser(this: InstanceType<GuildMember>): Promise<InstanceType<UserModel> | null> {
+    const user = await User.findById(this.user);
+    return user;
   }
 }
 
