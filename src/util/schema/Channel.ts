@@ -22,6 +22,7 @@ export interface IChannelObject {
   owner_id?: string;
   application_id?: string;
   parent_id?: string;
+  messages: string[];
 }
 
 export class PermissionOverwrites extends Typegoose {
@@ -106,7 +107,7 @@ export class Channel extends Typegoose {
   public parentID?: string;
 
   @instanceMethod
-  public async toChannelObject(this: InstanceType<Channel>): Promise<IChannelObject> {
+  public async toChannelObject(this: any): Promise<IChannelObject> {
     const channelObject: IChannelObject = {
       id: this._id,
       type: this.type,
@@ -123,10 +124,11 @@ export class Channel extends Typegoose {
       owner_id: this.ownerID,
       application_id: this.applicationID,
       parent_id: this.parentID,
+      messages: [],
     };
     if (this.recipients) {
       const users: Array<InstanceType<User> | null> = [];
-      this.recipients.forEach(async (recipient) => {
+      this.recipients.forEach(async (recipient: string) => {
         users.push(await UserModel.findById(recipient));
       });
       const userObjs: Array<IUserObject | undefined> = users.map((user) => {
