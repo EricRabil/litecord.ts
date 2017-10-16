@@ -42,6 +42,11 @@ export interface IGuildObject {
   presences?: object[];
 }
 
+export interface IChannelData {
+  name: string;
+  type: 0 | 2 | 4;
+}
+
 function lookupBulk<T>(document: mongoose.Model<InstanceType<T>>,
                        queries: object[]):
                        Array<InstanceType<T>> {
@@ -57,7 +62,7 @@ export class Guild extends Typegoose {
   @prop()
   public name: string;
 
-  @prop()
+  @prop({default: null})
   public icon: string;
 
   @prop()
@@ -66,7 +71,7 @@ export class Guild extends Typegoose {
   @prop()
   public ownerID: string;
 
-  @prop()
+  @prop({default: "us-central"})
   public region: string;
 
   @prop()
@@ -80,6 +85,9 @@ export class Guild extends Typegoose {
 
   @prop()
   public embedChannel: string;
+
+  @arrayProp({items: ChannelModel, default: []})
+  public channels: ChannelModel[];
 
   /**
    * Level of verification required
@@ -164,11 +172,11 @@ export class Guild extends Typegoose {
   @prop()
   public widgetChannel: string;
 
-  @prop()
-  public created: Date = new Date();
+  @prop({default: () => new Date()})
+  public created: Date;
 
-  @prop()
-  public large: boolean = false;
+  @prop({default: false})
+  public large: boolean;
 
   /**
    * Array of guild member IDs, must be converted to guild member objects
@@ -176,28 +184,30 @@ export class Guild extends Typegoose {
    * @type {string[]}
    * @memberof Guild
    */
-  @arrayProp({items: String})
-  public members: string[] = [];
+  @arrayProp({items: String, default: []})
+  public members: string[];
 
-  /**
-   * Array of channel IDs, must be converted to channel objects
-   *
-   * @type {string[]}
-   * @memberof Guild
-   */
-  @arrayProp({items: String})
-  public channels: string[] = [];
+  @instanceMethod
+  public async createChannel(this: InstanceType<Guild>, data: IChannelData): Promise<void> {
+    const newChannel = new Channel();
+    newChannel.name = data.name;
+    newChannel.type = data.type;
+    this.channels.push(newChannel);
+    this.save();
+  }
 
   @instanceMethod
   public async toGuildObject(this: InstanceType<Guild>, more: boolean = false): Promise<IGuildObject> {
+      const toChannelObject = (channel: ChannelModel): Promise<IChannelObject> =>
+            ChannelModel.prototype.toChannelObject.bind(channel)();
       const roleQuery = this.roles.map((role) => ({_id: role}));
       const emojiQuery = this.emojis.map((emoji) => ({_id: emoji}));
       const memberQuery = this.members.map((member) => ({_id: member}));
-      const channelQuery = this.channels.map((channel) => ({_id: channel}));
       const roles = await lookupBulk(Role, roleQuery);
       const roleObjects = roles.map((role) => role.toRoleObject());
       const emojis = await lookupBulk(Emoji, emojiQuery);
       const emojiObjects: any[] = emojis.map(async (emoji) => await emoji.toEmojiObject());
+      const channelObjects = await Promise.all(this.channels.map(async (channel) => await toChannelObject(channel)));
       let guildObject: IGuildObject = {
         id: this._id,
         name: this.name,
@@ -219,12 +229,11 @@ export class Guild extends Typegoose {
         application_id: this.applicationID,
         widget_enabled: this.widgetEnabled,
         widget_channel_id: this.widgetChannel,
+        channels: channelObjects,
       };
       if (more) {
         const members = await lookupBulk(GuildMember, memberQuery);
         const memberObjects = members.map(async (member) => await member.toGuildMemberObject());
-        const channels = await Promise.all(lookupBulk(Channel, channelQuery));
-        const channelObjects = channels.map(async (channel) => await channel.toChannelObject());
         const addition = {
           joined_at: this.created.toISOString(),
           large: this.members.length >= 50,
@@ -232,7 +241,6 @@ export class Guild extends Typegoose {
           member_count: this.members.length,
           voice_states: [],
           members: memberObjects,
-          channels: channelObjects,
         };
         guildObject = Object.assign(guildObject, addition);
         return guildObject;
