@@ -1,6 +1,8 @@
+/* tslint:disable:interface-name */
 import * as bodyParser from "body-parser";
 import * as cors from "cors";
 import * as express from "express";
+import {Request} from "express";
 import * as fs from "fs-extra";
 import * as jwt from "jwt-then";
 import * as mongoose from "mongoose";
@@ -18,6 +20,7 @@ import Guild from "./util/schema/Guild";
 import {Guild as GuildModel} from "./util/schema/Guild";
 import {User} from "./util/schema/User";
 import UserModel from "./util/schema/User";
+import {DiscordRequest} from "./util/Util";
 const hat = require("hat");
 
 const logger = new Logger();
@@ -63,7 +66,12 @@ export default class Server {
   }
 
   public static async validateToken(token: string): Promise<(User & mongoose.Document) | undefined> {
-    let verified: string | any = await jwt.verify(token, this.config.secret);
+    let verified: string | any;
+    try {
+      verified = await jwt.verify(token, this.config.secret);
+    } catch (e) {
+      return;
+    }
     if (typeof verified === "string") {
       try {
         verified = JSON.parse(verified);
@@ -137,12 +145,28 @@ export default class Server {
     Server.configBootstrap(path.join(__dirname, "config.json"));
     logger.log("Setting up express");
     this.express = express();
+    this.express.use((req: express.Request, res: express.Response, next) => {
+      logger.debug(`[Express] ${req.method} - ${req.originalUrl}`);
+      next();
+    });
     this.express.use(cors());
     this.express.use(bodyParser.json());
+    const handler: express.ErrorRequestHandler = (error, req, res, next) => {
+      if (error) {
+        res.status(400).send({error: 0, message: "Bad request"});
+      } else {
+        next();
+      }
+    };
+    this.express.use(handler);
     logger.log("Connecting to mongo");
     await mongoose.connect("mongodb://localhost/discordts", {useMongoClient: true});
-    logger.log("Loading routes (asynchronously, may load later)");
-    await this.load(path.join(__dirname, "routes"));
+    logger.log("Loading routes (synchronously)");
+    this.load(path.join(__dirname, "routes"));
+    this.express.use((req: express.Request, res: express.Response) => {
+      logger.debug(`[Express] 404 - ${req.originalUrl} (${req.method})`);
+      res.status(404).send({error: 0, message: "Not found"});
+    });
     this.express.listen(3500);
     logger.log("Express is listening on port 3500 - Starting socket server");
     this.socketManager = new SocketManager(this);
@@ -174,19 +198,41 @@ export default class Server {
     return "path" in object && "requestHandler" in object;
   }
 
-  private async load(directory: string): Promise<void> {
-    const contents = await fs.readdir(directory);
+  private load(directory: string): void {
+    const contents = fs.readdirSync(directory);
     const statLookups = new Array<Promise<fs.Stats>>();
-    contents.forEach(async (content) => {
+    contents.forEach((content) => {
       const contentPath = path.join(directory, content);
-      const stats = await fs.stat(contentPath);
+      const stats = fs.statSync(contentPath);
       if (stats.isDirectory()) {
         this.load(contentPath);
       } else {
         if (content.endsWith(".js")) {
           const loadedRoute = new (require(contentPath).default)(this);
           if (this.isRoute(loadedRoute)) {
-            this.express[loadedRoute.requestMethod](loadedRoute.path, loadedRoute.requestHandler());
+            if (loadedRoute.requiresAuthorization) {
+              this.express[loadedRoute.requestMethod](loadedRoute.path, async (req, res, next) => {
+                if (req.headers.authorization) {
+                  let token = req.headers.authorization;
+                  if (Array.isArray(token)) {
+                    token = token[0] || "";
+                  }
+                  const valid = await Server.validateToken(token);
+                  if (valid) {
+                    (req as any).user = valid;
+                    loadedRoute.requestHandler((req as any), res, next);
+                  } else {
+                    res.status(401).send({code: 0, message: "401: Unauthorized"});
+                  }
+                } else {
+                  res.status(401).send({code: 0, message: "401: Unauthorized"});
+                }
+              });
+            } else {
+              this.express[loadedRoute.requestMethod](loadedRoute.path, (req, res, next) => {
+                loadedRoute.requestHandler((req as any), res, next);
+              });
+            }
             logger.debug(`Loaded route ${loadedRoute.requestMethod} ${loadedRoute.path}`);
           }
         }
