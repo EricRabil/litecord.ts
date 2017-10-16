@@ -11,4 +11,5 @@ export function extractKeyValue(obj: object, value: string) {
 export interface DiscordRequest extends Request {
   body: {[key: string]: any};
   user?: (User & Document);
+  params: any;
 }
