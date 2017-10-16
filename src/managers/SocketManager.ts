@@ -1,7 +1,9 @@
 import * as ws from "ws";
 import * as zlib from "zlib";
 import Server from "../server";
+import {IGuildObject} from "../util/schema/Guild";
 import {SocketWrapper} from "../util/SocketWrapper";
+import WebsocketCodes from "../util/websocketCodes";
 
 interface IFirstContact {
   token: string;
@@ -12,8 +14,9 @@ export class SocketManager {
   public static readonly GATEWAY_NAME: string = "big-sexy-boy";
   public static readonly HEARTBEAT_INTERVAL: number = 41250;
 
+  public sockets: {[key: string]: SocketWrapper[]} = {};
+
   private server: ws.Server;
-  private connections: SocketWrapper[] = [];
 
   constructor(private discordServer: Server, port: number = 3750) {
     this.server = new ws.Server({port});
@@ -40,18 +43,23 @@ export class SocketManager {
         query.compress = "dontcompressthanks";
       }
       console.log(query.compress);
-      this.connections.push(new SocketWrapper(socket, query.compress === "zlib-stream"));
+      const _ = new SocketWrapper(socket, this, query.compress === "zlib-stream");
     });
   }
 
-  private send(target: ws, data: object): void {
-    target.send(zlib.deflateSync(Buffer.from(JSON.stringify(data))));
+  public async registerSocket(id: string, socket: SocketWrapper): Promise<void> {
+    if (this.sockets[id]) {
+      this.sockets[id].push(socket);
+    } else {
+      this.sockets[id] = [socket];
+    }
   }
 
-  private isFirstContact(data: any): data is IFirstContact {
-    if (!data) {
-      return false;
+  public async send(id: string, payload: any, event: string): Promise<void> {
+    if (this.sockets[id]) {
+      await this.sockets[id].forEach(async (socket) => {
+        await socket.send(WebsocketCodes.OPCODES.DISPATCH, payload, event);
+      });
     }
-    return "token" in data;
   }
 }

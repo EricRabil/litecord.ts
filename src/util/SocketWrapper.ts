@@ -2,8 +2,10 @@
 import {Document} from "mongoose";
 import * as zlib from "mz/zlib";
 import * as ws from "ws";
+import {SocketManager} from "../managers/SocketManager";
 import Server from "../server";
 import Logger from "../util/Logger";
+import {IGuildObject} from "../util/schema/Guild";
 import {User} from "../util/schema/User";
 import UserModel from "../util/schema/User";
 import WebsocketCodes from "../util/websocketCodes";
@@ -46,7 +48,7 @@ export class SocketWrapper {
   private authenticated: boolean = false;
   private sentSequence: number = 0;
 
-  constructor(private socket: ws, private compression: boolean = false) {
+  constructor(private socket: ws, private manager: SocketManager, private compression: boolean = false) {
     logger.debug(`New SocketWrapper created`);
     logger.debug(`Compression: ${compression}`);
     this.sendHello();
@@ -71,6 +73,29 @@ export class SocketWrapper {
     logger.debug(`Data received from socket - OPCode ${data.op} (${extractKeyValue(WebsocketCodes.OPCODES, data.op)})`);
     logger.debug(`Data: ${event.data}`);
     this.decideAction(data);
+  }
+
+  public async send(opcode: number,
+                    data: any = null,
+                    eventName: any = null,
+                    compress: boolean = this.compression): Promise<void> {
+    data = {
+    op: opcode,
+    d: data,
+    t: eventName,
+    s: opcode === WebsocketCodes.OPCODES.HEARTBEAT_ACK ? null : this.sentSequence,
+    };
+    if (opcode !== WebsocketCodes.OPCODES.HEARTBEAT_ACK) {
+    this.sentSequence++;
+    }
+    const jsonData = JSON.stringify(data);
+    logger.debug(`Sending data ${jsonData} (compression: ${this.compression})`);
+    if (this.compression) {
+    const result = await zlib.deflate(Buffer.from(jsonData));
+    await this._send(result);
+    } else {
+    await this._send(jsonData);
+    }
   }
 
   private decideAction(data: any): void {
@@ -124,7 +149,8 @@ export class SocketWrapper {
       if (this.isAuthenticationPacket(data)) {
         const user = await Server.validateToken(data.token);
         if (user) {
-          this.send(WebsocketCodes.OPCODES.DISPATCH, await READY(user), "READY");
+          await this.send(WebsocketCodes.OPCODES.DISPATCH, await READY(user), "READY");
+          this.manager.registerSocket(user._id, this);
         } else {
           this.close(WebsocketCodes.CLOSECODES.AUTH_FAILED);
         }
@@ -148,29 +174,6 @@ export class SocketWrapper {
         throw e;
       }
     });
-  }
-
-  private async send(opcode: number,
-                     data: any = null,
-                     eventName: any = null,
-                     compress: boolean = this.compression): Promise<void> {
-    data = {
-      op: opcode,
-      d: data,
-      t: eventName,
-      s: opcode === WebsocketCodes.OPCODES.HEARTBEAT_ACK ? null : this.sentSequence,
-    };
-    if (opcode !== WebsocketCodes.OPCODES.HEARTBEAT_ACK) {
-      this.sentSequence++;
-    }
-    const jsonData = JSON.stringify(data);
-    logger.debug(`Sending data ${jsonData} (compression: ${this.compression})`);
-    if (this.compression) {
-      const result = await zlib.deflate(Buffer.from(jsonData));
-      await this._send(result);
-    } else {
-      await this._send(jsonData);
-    }
   }
 
   private isAuthenticationPacket(data: any): data is IAuthorizationPacket {
