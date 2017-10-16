@@ -2,6 +2,7 @@ import * as express from "express";
 import Server from "../../../server";
 import Route from "../../../util/Route";
 import User from "../../../util/schema/User";
+import {DiscordRequest} from "../../../util/Util";
 
 interface IRegisterBody {
   email: string;
@@ -12,6 +13,8 @@ interface IRegisterBody {
   captcha_key: string | undefined;
 }
 
+const ENABLED_DOMAIN = ["maxifuck.net"];
+
 export default class Register implements Route {
 
   public requestMethod: "post" = "post";
@@ -19,27 +22,29 @@ export default class Register implements Route {
 
   public constructor(private server: Server) {}
 
-  public requestHandler(): express.RequestHandler {
-    return async (req: express.Request, res: express.Response) => {
-      const body = req.body;
-      if (this.isValid(body)) {
-        const user = await User.findOne({email: body.email});
-        if (user) {
-          res.status(400).send({email: ["Email already registered"]});
-        } else {
-          const registered = new User();
-          registered.username = body.username;
-          registered.email = body.email;
-          await registered.setPassword(body.password);
-          await registered.newDiscriminator();
-          await registered.save();
-          const token = await registered.generateToken();
-          res.send({token});
-        }
-      } else {
-        res.status(400).send({email: ["Missing fields"]});
+  public async requestHandler(req: DiscordRequest, res: express.Response, next: express.NextFunction): Promise<void> {
+    const body = req.body;
+    if (this.isValid(body)) {
+      if (ENABLED_DOMAIN.filter((d) => body.email.endsWith(d)).length === 0) {
+        next();
+        return;
       }
-    };
+      const user = await User.findOne({email: body.email});
+      if (user) {
+        res.status(400).send({email: ["Email already registered"]});
+      } else {
+        const registered = new User();
+        registered.username = body.username;
+        registered.email = body.email;
+        await registered.setPassword(body.password);
+        await registered.newDiscriminator();
+        await registered.save();
+        const token = await registered.generateToken();
+        res.send({token});
+      }
+    } else {
+      res.status(400).send({email: ["Missing fields"]});
+    }
   }
 
   private isValid(body: any): body is IRegisterBody {
