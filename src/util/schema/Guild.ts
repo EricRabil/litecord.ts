@@ -40,6 +40,7 @@ export interface IGuildObject {
   members?: IGuildMemberObject[];
   channels?: IChannelObject[];
   presences?: object[];
+  system_channel_id: string;
 }
 
 export interface IChannelData {
@@ -70,6 +71,9 @@ export class Guild extends Typegoose {
 
   @prop({required: true})
   public ownerID: string;
+
+  @prop({default: null})
+  public systemChannelID: string;
 
   @prop({default: "us-central"})
   public region: string;
@@ -230,6 +234,7 @@ export class Guild extends Typegoose {
         widget_enabled: this.widgetEnabled,
         widget_channel_id: this.widgetChannel,
         channels: channelObjects,
+        system_channel_id: this.systemChannelID,
       };
       if (more) {
         const members = await lookupBulk(GuildMember, memberQuery);
