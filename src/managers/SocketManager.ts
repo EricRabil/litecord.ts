@@ -55,16 +55,16 @@ export class SocketManager {
     }
   }
 
-  public async send(id: string | string[], payload: any, event: string): Promise<void> {
-    if (!Array.isArray(id)) {
-      id = [id];
+  public async send(ids: string | string[], payload: any, event: string): Promise<void> {
+    if (!Array.isArray(ids)) {
+      ids = [ids];
     }
-    id.forEach(async (user) => {
-      if (this.sockets[user]) {
-        await this.sockets[user].forEach(async (socket) => {
+    for (const userID of ids) {
+      if (this.sockets[userID]) {
+        for (const socket of this.sockets[userID]) {
           await socket.send(WebsocketCodes.OPCODES.DISPATCH, payload, event);
-        });
+        }
       }
-    });
+    }
   }
 }

@@ -2,6 +2,8 @@
 import * as mongoose from "mongoose";
 import {arrayProp, instanceMethod, InstanceType, ModelType, prop, staticMethod, Typegoose} from "typegoose";
 import Server from "../../server";
+import Guild from "./Guild";
+import { Guild as GuildModel } from "./Guild";
 import UserModel from "./User";
 import {IUserObject, User} from "./User";
 
@@ -19,7 +21,7 @@ export interface IChannelObject {
   user_limit?: number;
   recipients?: IUserObject[];
   icon?: string;
-  owner_id?: string;
+  owner_id?: string | null;
   application_id?: string;
   parent_id?: string;
   messages: string[];
@@ -73,8 +75,8 @@ export class Channel extends Typegoose {
   @prop()
   public topic?: string;
 
-  @prop()
-  public nsfw?: boolean = false;
+  @prop({default: false})
+  public nsfw?: boolean;
 
   @prop()
   public lastMessage?: string;
@@ -98,16 +100,13 @@ export class Channel extends Typegoose {
   public icon?: string;
 
   @prop()
-  public ownerID?: string;
-
-  @prop()
   public applicationID?: string;
 
   @prop()
   public parentID?: string;
 
   @instanceMethod
-  public async toChannelObject(this: any): Promise<IChannelObject> {
+  public async toChannelObject(this: InstanceType<Channel>): Promise<IChannelObject> {
     const channelObject: IChannelObject = {
       id: this._id,
       type: this.type,
@@ -121,16 +120,16 @@ export class Channel extends Typegoose {
       bitrate: this.bitrate,
       user_limit: this.userLimit,
       icon: this.icon,
-      owner_id: this.ownerID,
+      owner_id: await this.getOwnerID(),
       application_id: this.applicationID,
       parent_id: this.parentID,
       messages: [],
     };
     if (this.recipients) {
       const users: Array<InstanceType<User> | null> = [];
-      this.recipients.forEach(async (recipient: string) => {
+      for (const recipient of this.recipients) {
         users.push(await UserModel.findById(recipient));
-      });
+      }
       const userObjs: Array<IUserObject | undefined> = users.map((user) => {
         if (user) {
           return user.toUserObject();
@@ -142,6 +141,24 @@ export class Channel extends Typegoose {
       channelObject.recipients = userObjsFiltered;
     }
     return channelObject;
+  }
+
+  @instanceMethod
+  public async getOwnerID(this: InstanceType<Channel>): Promise<string | null> {
+    const guild = await this.getGuild();
+    if (guild) {
+      return guild.ownerID;
+    } else {
+      return null;
+    }
+  }
+
+  @instanceMethod
+  private async getGuild(this: InstanceType<Channel>): Promise<InstanceType<GuildModel> | null> {
+    if (!this.guildID) {
+      return null;
+    }
+    return await Guild.findById(this.guildID);
   }
 }
 

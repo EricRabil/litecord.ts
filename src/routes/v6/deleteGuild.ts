@@ -20,25 +20,24 @@ export default class Guilds implements Route {
         return;
       } else {
         if (!req.user._id.equals(guild.ownerID)) {
-          res.status(403).send({code: 50001, message: "Missing access"});
+          Server.errorEmitter.send(res, Server.errorEmitter.CODES.MISSING.ACCESS);
         } else {
           const members = await guild.getMembers();
-          const dispatches: string[] = [];
-          members.forEach(async (member) => {
-            dispatches.push(member.user);
+          for (const member of members) {
             const user = await member.getUser();
             if (user) {
               user.guilds.splice(user.guilds.indexOf(guild._id));
               await user.save();
             }
             await member.remove();
-          });
-          this.server.socketManager.send(dispatches, {id: guild.id, unavailable: true}, "GUILD_DELETE");
-          res.status(204).send();
+          }
+          guild.dispatch({id: guild.id, unavailable: false}, "GUILD_DELETE");
+          guild.remove();
+          res.status(204).end();
         }
       }
     } else {
-      res.status(403).send({code: 403, message: "403: Unauthorized"});
+      Server.errorEmitter.send(res, Server.errorEmitter.CODES.UNAUTHORIZED);
     }
   }
 }

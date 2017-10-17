@@ -14,6 +14,7 @@ import * as util from "util";
 import * as ws from "ws";
 import {SocketManager} from "./managers/SocketManager";
 import Config from "./util/Config";
+import ErrorEmitter from "./util/ErrorEmitter";
 import Logger from "./util/logger";
 import Route from "./util/Route";
 import Guild from "./util/schema/Guild";
@@ -49,6 +50,12 @@ export default class Server {
   public static get logger(): Logger {
     return logger;
   }
+
+  public static socketManager: SocketManager;
+
+  public static errorEmitter = ErrorEmitter;
+
+  public static errorCodes = ErrorEmitter.CODES;
 
   public static generatePayload(user: InstanceType<User>): {userID: string, passwordHash: string, expiration: number} {
     const expiration = new Date();
@@ -122,7 +129,6 @@ export default class Server {
 
   public express: express.Express;
   public socketServer: ws.Server;
-  public socketManager: SocketManager;
 
   constructor() {
     this.loadServer();
@@ -138,6 +144,18 @@ export default class Server {
 
   public get config(): Config {
     return Server.config;
+  }
+
+  public get socketManager(): SocketManager {
+    return Server.socketManager;
+  }
+
+  public get errorEmitter() {
+    return Server.errorEmitter;
+  }
+
+  public get errorCodes() {
+    return this.errorEmitter.CODES;
   }
 
   private async loadServer(): Promise<void> {
@@ -169,7 +187,7 @@ export default class Server {
     });
     this.express.listen(3500);
     logger.log("Express is listening on port 3500 - Starting socket server");
-    this.socketManager = new SocketManager(this);
+    Server.socketManager = new SocketManager(this);
     logger.log("Starting JavaScript shell...");
     realReadline.createInterface({input: process.stdin, output: process.stdout}).on("line", async (i) => {
       try {

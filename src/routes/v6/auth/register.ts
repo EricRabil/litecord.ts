@@ -26,12 +26,12 @@ export default class Register implements Route {
     const body = req.body;
     if (this.isValid(body)) {
       if (ENABLED_DOMAIN.filter((d) => body.email.endsWith(d)).length === 0) {
-        res.status(400).send({email: ["Email is disallowed"]});
+        res.status(400).json({email: ["Email is disallowed"]});
         return;
       }
       const user = await User.findOne({email: body.email});
       if (user) {
-        res.status(400).send({email: ["Email already registered"]});
+        res.status(400).json({email: ["Email already registered"]});
       } else {
         const registered = new User();
         registered.username = body.username;
@@ -40,10 +40,10 @@ export default class Register implements Route {
         await registered.newDiscriminator();
         await registered.save();
         const token = await registered.generateToken();
-        res.send({token});
+        res.json({token});
       }
     } else {
-      res.status(400).send({email: ["Missing fields"]});
+      res.status(400).json({email: ["Missing fields"]});
     }
   }
 

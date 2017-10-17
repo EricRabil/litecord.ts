@@ -24,7 +24,7 @@ export default class Login implements Route {
         const valid = await user.comparePasswords(body.password);
         if (valid) {
           const token = await Server.generateToken(user);
-          res.send({token});
+          res.json({token});
         }
       } else {
         this.sendInvalid(res);
@@ -33,7 +33,7 @@ export default class Login implements Route {
   }
 
   private sendInvalid(res: express.Response): void {
-    res.status(400).send({email: ["Bad email or password"]});
+    res.status(400).json({email: ["Bad email or password"]});
   }
 
   private isValid(body: any): body is ILoginBody {

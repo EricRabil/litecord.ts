@@ -11,6 +11,6 @@ export default class Login implements Route {
   public constructor(private server: Server) {}
 
   public requestHandler(req: DiscordRequest, res: express.Response): void {
-    res.send({url: this.server.gatewayURL});
+    res.json({url: this.server.gatewayURL});
   }
 }

@@ -48,14 +48,14 @@ export interface IChannelData {
   type: 0 | 2 | 4;
 }
 
-function lookupBulk<T>(document: mongoose.Model<InstanceType<T>>,
-                       queries: object[]):
-                       Array<InstanceType<T>> {
+async function lookupBulk<T>(document: mongoose.Model<InstanceType<T>>,
+                             queries: object[]):
+                       Promise<Array<InstanceType<T>>> {
   const lookups: Array<InstanceType<T> | null> = [];
-  queries.forEach(async (query) => {
+  for (const query of queries) {
     lookups.push(await document.findOne(query));
-  });
-  lookups.filter((lookup) => !!lookup);
+  }
+  lookups.filter((lookup) => lookup !== null && lookup !== undefined);
   return (lookups as any);
 }
 
@@ -90,8 +90,14 @@ export class Guild extends Typegoose {
   @prop()
   public embedChannel: string;
 
-  @arrayProp({items: ChannelModel, default: []})
-  public channels: ChannelModel[];
+  /**
+   * Array of channel IDs - must be converted to channel objects
+   *
+   * @type {string[]}
+   * @memberof Guild
+   */
+  @arrayProp({items: String, default: []})
+  public channels: string[];
 
   /**
    * Level of verification required
@@ -192,38 +198,67 @@ export class Guild extends Typegoose {
   public members: string[];
 
   @instanceMethod
+  public async dispatch(this: InstanceType<Guild>, data: any, event: string): Promise<void> {
+    const members = await this.getMembers();
+    const dispatches: string[] = [];
+    for (const member of members) {
+      dispatches.push(member.user);
+    }
+    Server.socketManager.send(dispatches, data, event);
+  }
+
+  @instanceMethod
   public async createChannel(this: InstanceType<Guild>, data: IChannelData): Promise<void> {
     const newChannel = new Channel();
     newChannel.name = data.name;
     newChannel.type = data.type;
-    this.channels.push(newChannel);
+    newChannel.save();
+    this.channels.push(newChannel._id);
     this.save();
   }
 
   @instanceMethod
   public async getMembers(this: InstanceType<Guild>): Promise<Array<InstanceType<GuildMemberModel>>> {
-    const members: Array<InstanceType<GuildMemberModel>> = [];
-    await this.members.forEach(async (member) => {
-      const user = await GuildMember.findById(member);
-      if (user) {
-        members.push(user);
-      }
-    });
-    return members;
+    return this.getEntities(this.members, GuildMember, new GuildMemberModel());
+  }
+
+  @instanceMethod
+  public async getEmojis(this: InstanceType<Guild>): Promise<Array<InstanceType<EmojiModel>>> {
+    return this.getEntities(this.emojis, Emoji, new EmojiModel());
+  }
+
+  @instanceMethod
+  public async getRoles(this: InstanceType<Guild>): Promise<Array<InstanceType<RoleModel>>> {
+    return this.getEntities(this.roles, Role, new RoleModel());
+  }
+
+  @instanceMethod
+  public async getChannels(this: InstanceType<Guild>): Promise<Array<InstanceType<ChannelModel>>> {
+    return this.getEntities(this.channels, Channel, new ChannelModel());
+  }
+
+  @instanceMethod
+  public async getMemberObjects(this: InstanceType<Guild>): Promise<IGuildMemberObject[]> {
+    return Promise.all((await this.getMembers()).map(async (member) => member.toGuildMemberObject()));
+  }
+
+  @instanceMethod
+  public async getEmojiObjects(this: InstanceType<Guild>): Promise<IEmojiObject[]> {
+    return Promise.all((await this.getEmojis()).map(async (emoji) => emoji.toEmojiObject()));
+  }
+
+  @instanceMethod
+  public async getRoleObjects(this: InstanceType<Guild>): Promise<IRoleObject[]> {
+    return Promise.all((await this.getRoles()).map(async (role) => role.toRoleObject()));
+  }
+
+  @instanceMethod
+  public async getChannelObjects(this: InstanceType<Guild>): Promise<IChannelObject[]> {
+    return Promise.all((await this.getChannels()).map(async (channel) => await channel.toChannelObject()));
   }
 
   @instanceMethod
   public async toGuildObject(this: InstanceType<Guild>, more: boolean = false): Promise<IGuildObject> {
-      const toChannelObject = (channel: ChannelModel): Promise<IChannelObject> =>
-            ChannelModel.prototype.toChannelObject.bind(channel)();
-      const roleQuery = this.roles.map((role) => ({_id: role}));
-      const emojiQuery = this.emojis.map((emoji) => ({_id: emoji}));
-      const memberQuery = this.members.map((member) => ({_id: member}));
-      const roles = await lookupBulk(Role, roleQuery);
-      const roleObjects = roles.map((role) => role.toRoleObject());
-      const emojis = await lookupBulk(Emoji, emojiQuery);
-      const emojiObjects: any[] = emojis.map(async (emoji) => await emoji.toEmojiObject());
-      const channelObjects = await Promise.all(this.channels.map(async (channel) => await toChannelObject(channel)));
       let guildObject: IGuildObject = {
         id: this._id,
         name: this.name,
@@ -238,31 +273,45 @@ export class Guild extends Typegoose {
         verification_level: this.verificationLevel,
         default_message_notifications: this.defaultMessageNotifications,
         explicit_content_filter: this.explicitContentFilter,
-        roles: roleObjects,
-        emojis: emojiObjects,
+        roles: await this.getRoleObjects(),
+        emojis: await this.getEmojiObjects(),
         features: this.features,
         mfa_level: this.mfaLevel,
         application_id: this.applicationID,
         widget_enabled: this.widgetEnabled,
         widget_channel_id: this.widgetChannel,
-        channels: channelObjects,
+        channels: await this.getChannelObjects(),
         system_channel_id: this.systemChannelID,
       };
       if (more) {
-        const members = await lookupBulk(GuildMember, memberQuery);
-        const memberObjects = members.map(async (member) => await member.toGuildMemberObject());
         const addition = {
           joined_at: this.created.toISOString(),
           large: this.members.length >= 50,
           unavailable: false,
           member_count: this.members.length,
           voice_states: [],
-          members: memberObjects,
+          members: await this.getMemberObjects(),
         };
         guildObject = Object.assign(guildObject, addition);
         return guildObject;
       }
       return guildObject;
+  }
+
+  @instanceMethod
+  private async getEntities<T extends Typegoose>(
+                                  this: InstanceType<Guild>,
+                                  ids: string[],
+                                  document: mongoose.Model<InstanceType<T>>,
+                                  model: T): Promise<Array<InstanceType<T>>> {
+    const entities: Array<InstanceType<T>> = [];
+    for (const id of ids) {
+      const entity = await document.findById(id);
+      if (entity) {
+        entities.push(entity);
+      }
+    }
+    return entities;
   }
 }
 

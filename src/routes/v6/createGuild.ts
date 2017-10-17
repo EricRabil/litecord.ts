@@ -32,10 +32,8 @@ export default class Guilds implements Route {
       await req.user.save();
       const guildObject = await guild.toGuildObject(true);
       console.log(guildObject);
-      res.send(guildObject);
+      res.json(guildObject);
       this.server.socketManager.send(req.user._id, guildObject, "GUILD_CREATE");
-    } else {
-      res.status(400).send({code: 4000, message: "Unknown Error"});
     }
   }
 
