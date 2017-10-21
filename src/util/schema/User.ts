@@ -100,12 +100,12 @@ export class User extends Typegoose {
   }
 
   @instanceMethod
-  public async getGuilds(this: InstanceType<User>): Promise<IGuildObject[]> {
+  public async getGuilds(this: InstanceType<User>, more: boolean = false): Promise<IGuildObject[]> {
     const guilds = this.guilds.map((guild) => Guild.findById(guild)).map(async (guild) => {
       if (guild) {
         const guildInstance = await guild;
         if (guildInstance) {
-          return await guildInstance.toGuildObject();
+          return await guildInstance.toGuildObject(more);
         }
       }
       return undefined;

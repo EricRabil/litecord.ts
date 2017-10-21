@@ -33,7 +33,7 @@ const applyColors = (color: chalk.ChalkChain | chalk.ChalkChain[], text: string)
 };
 
 const colors = {
-  debug: [chalk.italic, chalk.bgRed],
+  debug: [chalk.italic, chalk.bgBlue, chalk.white],
   error: chalk.red,
   log: chalk.blue,
   warn: chalk.yellow,

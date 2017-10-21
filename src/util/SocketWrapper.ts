@@ -5,6 +5,7 @@ import * as ws from "ws";
 import {SocketManager} from "../managers/SocketManager";
 import Server from "../server";
 import Logger from "../util/Logger";
+import Guild from "../util/schema/Guild";
 import {IGuildObject} from "../util/schema/Guild";
 import {User} from "../util/schema/User";
 import UserModel from "../util/schema/User";
@@ -21,8 +22,9 @@ async function READY(user: User & Document): Promise<object> {
     v: 6,
     _trace: ["big-sexy-boy"],
     private_channels: [],
-    guilds: (await user.getGuilds()),
+    guilds: (await user.getGuilds(true)),
     relationships: [],
+    read_state: [],
     user: user.toUserObject(),
   };
   payload = Object.assign(payload, user.getMetadata());
@@ -45,8 +47,11 @@ const logger: Logger = new Logger(["SocketWrapper"]);
 
 export class SocketWrapper {
 
+  public opened: boolean = true;
+
   private authenticated: boolean = false;
   private sentSequence: number = 0;
+  private snowflake?: string;
 
   constructor(private socket: ws, private manager: SocketManager, private compression: boolean = false) {
     logger.debug(`New SocketWrapper created`);
@@ -58,6 +63,12 @@ export class SocketWrapper {
 
   public onClose(event: {wasClean: boolean, code: number, reason: string, target: ws}): void {
     logger.debug(`Socket was closed - Clean: ${event.wasClean} - Code: ${event.code} - Reason: ${event.reason}`);
+    this.opened = false;
+    if (this.snowflake) {
+      const index = this.manager.sockets[this.snowflake].indexOf(this);
+      this.manager.sockets[this.snowflake].splice(index);
+    }
+    this.socket.onmessage = () => null;
   }
 
   public onMessage(event: {data: any; type: string; target: ws}): void {
@@ -80,21 +91,23 @@ export class SocketWrapper {
                     eventName: any = null,
                     compress: boolean = this.compression): Promise<void> {
     data = {
-    op: opcode,
-    d: data,
-    t: eventName,
-    s: opcode === WebsocketCodes.OPCODES.HEARTBEAT_ACK ? null : this.sentSequence,
+      op: opcode,
+      d: data,
     };
     if (opcode !== WebsocketCodes.OPCODES.HEARTBEAT_ACK) {
-    this.sentSequence++;
+      data.s = this.sentSequence;
+      this.sentSequence++;
+    }
+    if (eventName) {
+      data.t = eventName;
     }
     const jsonData = JSON.stringify(data);
-    logger.debug(`Sending data ${jsonData} (compression: ${this.compression})`);
-    if (this.compression) {
-    const result = await zlib.deflate(Buffer.from(jsonData));
-    await this._send(result);
+    logger.debug(`Sending data ${jsonData} (compression: ${compress})`);
+    if (compress) {
+      const result = await zlib.deflate(Buffer.from(jsonData));
+      await this._send(result);
     } else {
-    await this._send(jsonData);
+      await this._send(jsonData);
     }
   }
 
@@ -109,7 +122,10 @@ export class SocketWrapper {
           this.sendHeartbeat();
           break;
         case WebsocketCodes.OPCODES.GUILD_SYNC:
-          this.guildSync();
+          this.guildSync(data.d);
+          break;
+        case WebsocketCodes.OPCODES.VOICE_STATE_UPDATE:
+          this.send(WebsocketCodes.OPCODES.VOICE_STATE_UPDATE, {}, "VOICE_STATE_UPDATE");
           break;
         default:
           this.unknownOPCode(opcode);
@@ -121,8 +137,8 @@ export class SocketWrapper {
   }
 
   private unknownOPCode(opcode: number): void {
-    logger.debug(`Unknown opcode: ${opcode} - Closing socket`);
-    this.close(WebsocketCodes.CLOSECODES.UNKNOWN_OP);
+    logger.debug(`Unknown opcode: ${opcode}`);
+    this.send((null as any), {});
   }
 
   private sendHeartbeat(): void {
@@ -135,8 +151,22 @@ export class SocketWrapper {
     this.send(WebsocketCodes.OPCODES.HELLO, HELLO);
   }
 
-  private guildSync(): void {
+  private async guildSync(data: any): Promise<void> {
     logger.debug(`Sending guild sync`);
+    for (const guildID of (data as string[])) {
+      const guild = await Guild.findById(guildID);
+      if (!guild) {
+        continue;
+      }
+      if (guild.users.indexOf(this.snowflake || "") === -1) {
+        continue;
+      }
+      this.send(WebsocketCodes.OPCODES.DISPATCH, {
+        id: guild._id,
+        presences: [],
+        members: await guild.getMemberObjects(),
+      }, "GUILD_SYNC");
+    }
     this.send(WebsocketCodes.OPCODES.GUILD_SYNC, {});
   }
 
@@ -150,6 +180,7 @@ export class SocketWrapper {
         const user = await Server.validateToken(data.token);
         if (user) {
           await this.send(WebsocketCodes.OPCODES.DISPATCH, await READY(user), "READY");
+          this.snowflake = user._id;
           this.manager.registerSocket(user._id, this);
         } else {
           this.close(WebsocketCodes.CLOSECODES.AUTH_FAILED);

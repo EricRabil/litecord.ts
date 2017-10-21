@@ -1,6 +1,7 @@
 import {Response} from "express";
 
 const codeMap: {[key: number]: string} = {
+  0: "Unknown error",
   400: "400: Bad request",
   10001: "Unknown account",
   10002: "Unknown application",
@@ -99,6 +100,7 @@ const codeShortcuts = {
     APP: 10002,
     CHANNEL: 10003,
     EMOJI: 10014,
+    ERROR: 0,
     GUILD: 10004,
     INTEGRATION: 10005,
     INVITE: 10006,

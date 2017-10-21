@@ -42,7 +42,6 @@ export class SocketManager {
       if (!query.compress) {
         query.compress = "dontcompressthanks";
       }
-      console.log(query.compress);
       const _ = new SocketWrapper(socket, this, query.compress === "zlib-stream");
     });
   }
@@ -62,6 +61,10 @@ export class SocketManager {
     for (const userID of ids) {
       if (this.sockets[userID]) {
         for (const socket of this.sockets[userID]) {
+          if (!socket.opened) {
+            this.sockets[userID].splice(this.sockets[userID].indexOf(socket));
+            continue;
+          }
           await socket.send(WebsocketCodes.OPCODES.DISPATCH, payload, event);
         }
       }

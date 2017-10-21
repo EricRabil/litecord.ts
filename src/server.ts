@@ -99,8 +99,6 @@ export default class Server {
           logger.debug(`Couldn't find user ID in database: ${verified.userID}`);
           return;
         }
-        console.log(`${(user._id.equals(verified.userID))}`);
-        console.log(`${(verified.passwordHash === user.password)}`);
         if ((user._id.equals(verified.userID)) && (verified.passwordHash === user.password)) {
           return user;
         } else {

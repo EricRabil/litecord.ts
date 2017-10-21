@@ -4,6 +4,8 @@ import {arrayProp, instanceMethod, InstanceType, ModelType, prop, staticMethod, 
 import Server from "../../server";
 import Guild from "./Guild";
 import { Guild as GuildModel } from "./Guild";
+import MessageModel from "./Message";
+import {IMessageObject, Message} from "./Message";
 import UserModel from "./User";
 import {IUserObject, User} from "./User";
 
@@ -24,7 +26,7 @@ export interface IChannelObject {
   owner_id?: string | null;
   application_id?: string;
   parent_id?: string;
-  messages: string[];
+  messages: IMessageObject[];
 }
 
 export class PermissionOverwrites extends Typegoose {
@@ -42,6 +44,22 @@ export class PermissionOverwrites extends Typegoose {
 }
 
 export class Channel extends Typegoose {
+
+  @staticMethod
+  public static async getChannel(
+      this: ModelType<Channel> & Channel,
+      channelID: string): Promise<InstanceType<Channel> | null> {
+    let channel = await ChannelModel.findById(channelID);
+    if (!channel) {
+      const results = await ChannelModel.find({parentID: channelID});
+      if (results.length === 0) {
+        return null;
+      }
+      channel = results[0];
+    }
+    return channel;
+  }
+
   @prop()
   public id: string;
 
@@ -105,10 +123,45 @@ export class Channel extends Typegoose {
   @prop()
   public parentID?: string;
 
+  @prop({required: true, default: false})
+  public default: boolean;
+
+  @instanceMethod
+  public async getMessages(this: InstanceType<Channel>): Promise<Array<InstanceType<Message>>> {
+    return await MessageModel.find({channelID: this._id});
+  }
+
+  @instanceMethod
+  public async getMessageObjects(this: InstanceType<Channel>): Promise<IMessageObject[]> {
+    return Promise.all((await this.getMessages()).map((message) => message.toMessageObject()));
+  }
+
+  @instanceMethod
+  public async sendMessage(this: InstanceType<Channel>, message: IMessageObject): Promise<IMessageObject> {
+    const messageSchema = new MessageModel();
+    console.log(message);
+    messageSchema.authorID = message.author && message.author.id || "";
+    messageSchema.channelID = this._id;
+    messageSchema.content = message.content;
+    messageSchema.mentionEveryone = message.mention_everyone;
+    messageSchema.nonce = (message.nonce as string);
+    messageSchema.pinned = message.pinned;
+    messageSchema.roleMentions = message.mention_roles;
+    messageSchema.tts = message.tts;
+    messageSchema.webhookID = (message.webhook_id as string);
+    await messageSchema.save();
+    const guild = await this.getGuild();
+    const messageObj = await messageSchema.toMessageObject();
+    if (guild) {
+      await guild.dispatch(messageObj, "MESSAGE_CREATE");
+    }
+    return messageObj;
+  }
+
   @instanceMethod
   public async toChannelObject(this: InstanceType<Channel>): Promise<IChannelObject> {
     const channelObject: IChannelObject = {
-      id: this._id,
+      id: this.default ? this.parentID : this._id,
       type: this.type,
       guild_id: this.guildID,
       position: this.channelPosition,
@@ -123,7 +176,7 @@ export class Channel extends Typegoose {
       owner_id: await this.getOwnerID(),
       application_id: this.applicationID,
       parent_id: this.parentID,
-      messages: [],
+      messages: await this.getMessageObjects(),
     };
     if (this.recipients) {
       const users: Array<InstanceType<User> | null> = [];
@@ -154,7 +207,7 @@ export class Channel extends Typegoose {
   }
 
   @instanceMethod
-  private async getGuild(this: InstanceType<Channel>): Promise<InstanceType<GuildModel> | null> {
+  public async getGuild(this: InstanceType<Channel>): Promise<InstanceType<GuildModel> | null> {
     if (!this.guildID) {
       return null;
     }

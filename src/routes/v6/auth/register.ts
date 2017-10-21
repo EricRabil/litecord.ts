@@ -13,7 +13,7 @@ interface IRegisterBody {
   captcha_key: string | undefined;
 }
 
-const ENABLED_DOMAIN = ["maxifuck.net"];
+const ENABLED_DOMAIN = ["pornhub.com"];
 
 export default class Register implements Route {
 

@@ -2,6 +2,8 @@
 import * as mongoose from "mongoose";
 import {arrayProp, instanceMethod, InstanceType, ModelType, prop, staticMethod, Typegoose} from "typegoose";
 import Server from "../../server";
+import Guild from "./Guild";
+import {Guild as GuildModel, IGuildObject} from "./Guild";
 import User from "./User";
 import {IUserObject, User as UserModel} from "./User";
 
@@ -22,8 +24,11 @@ export class GuildMember extends Typegoose {
    * @type {string}
    * @memberof GuildMember
    */
-  @prop()
+  @prop({required: true})
   public user: string;
+
+  @prop({required: true})
+  public guild: string;
 
   @prop()
   public nick?: string;
@@ -37,14 +42,14 @@ export class GuildMember extends Typegoose {
   @arrayProp({items: String})
   public roles: string[] = [];
 
-  @prop()
+  @prop({required: true, default: () => new Date()})
   public joinedAt: Date;
 
-  @prop()
-  public deaf: boolean = false;
+  @prop({required: true, default: false})
+  public deaf: boolean;
 
-  @prop()
-  public mute: boolean = false;
+  @prop({required: true, default: true})
+  public mute: boolean;
 
   @instanceMethod
   public async toGuildMemberObject(this: InstanceType<GuildMember>): Promise<IGuildMemberObject> {
@@ -66,6 +71,30 @@ export class GuildMember extends Typegoose {
   public async getUser(this: InstanceType<GuildMember>): Promise<InstanceType<UserModel> | null> {
     const user = await User.findById(this.user);
     return user;
+  }
+
+  @instanceMethod
+  public async getUserObject(this: InstanceType<GuildMember>): Promise<IUserObject | null> {
+    const user = await this.getUser();
+    if (!user) {
+      return null;
+    }
+    return await user.toUserObject();
+  }
+
+  @instanceMethod
+  public async getGuild(this: InstanceType<GuildMember>): Promise<InstanceType<GuildModel> | null> {
+    const guild = await Guild.findById(this.guild);
+    return guild;
+  }
+
+  @instanceMethod
+  public async getGuildObject(this: InstanceType<GuildMember>): Promise<IGuildObject | null> {
+    const guild = await this.getGuild();
+    if (!guild) {
+      return null;
+    }
+    return await guild.toGuildObject();
   }
 }
 

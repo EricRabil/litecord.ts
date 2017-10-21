@@ -24,14 +24,7 @@ export default class Guilds implements Route {
       if (!guild) {
         return Server.errorEmitter.send(res, Server.errorCodes.UNKNOWN.GUILD);
       }
-      const channel = new Channel();
-      channel.name = req.body.name;
-      channel.type = req.body.type || 0;
-      channel.guildID = guild._id;
-      guild.channels.push(channel._id);
-      channel.save();
-      guild.save();
-      (global as any).channelDebug = channel;
+      const channel = await guild.createChannel({name: req.body.name, type: req.body.type || 0, default: false});
       const channelObj = await channel.toChannelObject();
       res.json(channelObj);
       guild.dispatch(channelObj, "CHANNEL_CREATE");

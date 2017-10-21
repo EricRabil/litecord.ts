@@ -10,6 +10,8 @@ import GuildMember from "./GuildMember";
 import {GuildMember as GuildMemberModel, IGuildMemberObject} from "./GuildMember";
 import Role from "./Role";
 import {IRoleObject, Role as RoleModel} from "./Role";
+import User from "./User";
+import {IUserObject, User as UserModel} from "./User";
 
 export interface IGuildObject {
   id: string;
@@ -46,6 +48,12 @@ export interface IGuildObject {
 export interface IChannelData {
   name: string;
   type: 0 | 2 | 4;
+}
+
+export interface IInternalChannelObject {
+  name: string;
+  type: number;
+  default: boolean;
 }
 
 async function lookupBulk<T>(document: mongoose.Model<InstanceType<T>>,
@@ -149,6 +157,9 @@ export class Guild extends Typegoose {
   @arrayProp({items: String, default: []})
   public roles: string[];
 
+  @arrayProp({items: String, default: []})
+  public users: string[];
+
   /**
    * Array of emojis - must be converted to an array of emoji objects
    *
@@ -208,13 +219,18 @@ export class Guild extends Typegoose {
   }
 
   @instanceMethod
-  public async createChannel(this: InstanceType<Guild>, data: IChannelData): Promise<void> {
+  public async createChannel(
+      this: InstanceType<Guild>,
+      data: IInternalChannelObject): Promise<InstanceType<ChannelModel>> {
     const newChannel = new Channel();
     newChannel.name = data.name;
     newChannel.type = data.type;
+    newChannel.default = data.default;
+    newChannel.parentID = this._id;
     newChannel.save();
     this.channels.push(newChannel._id);
-    this.save();
+    await this.save();
+    return newChannel;
   }
 
   @instanceMethod
@@ -238,6 +254,11 @@ export class Guild extends Typegoose {
   }
 
   @instanceMethod
+  public async getUsers(this: InstanceType<Guild>): Promise<Array<InstanceType<UserModel>>> {
+    return this.getEntities(this.users, User, new UserModel());
+  }
+
+  @instanceMethod
   public async getMemberObjects(this: InstanceType<Guild>): Promise<IGuildMemberObject[]> {
     return Promise.all((await this.getMembers()).map(async (member) => member.toGuildMemberObject()));
   }
@@ -255,6 +276,11 @@ export class Guild extends Typegoose {
   @instanceMethod
   public async getChannelObjects(this: InstanceType<Guild>): Promise<IChannelObject[]> {
     return Promise.all((await this.getChannels()).map(async (channel) => await channel.toChannelObject()));
+  }
+
+  @instanceMethod
+  public async getUserObjects(this: InstanceType<Guild>): Promise<IUserObject[]> {
+    return Promise.all((await this.getUsers()).map((user) => user.toUserObject()));
   }
 
   @instanceMethod
@@ -282,6 +308,7 @@ export class Guild extends Typegoose {
         widget_channel_id: this.widgetChannel,
         channels: await this.getChannelObjects(),
         system_channel_id: this.systemChannelID,
+        presences: [],
       };
       if (more) {
         const addition = {
