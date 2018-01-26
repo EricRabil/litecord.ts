@@ -1,4 +1,5 @@
 import {Response} from "express";
+import * as flat from "flat";
 
 const codeMap: {[key: number]: string} = {
   0: "Unknown error",
@@ -114,6 +115,76 @@ const codeShortcuts = {
   },
 };
 
+export const CODES = codeShortcuts;
+
+const statusCodes: ICodeMap = {
+  400: [
+    codeShortcuts.BAD_REQUEST,
+    codeShortcuts.OAUTH2.INVALID,
+    codeShortcuts.INVALID.FORM_BODY,
+    codeShortcuts.INVALID.ACCOUNT,
+    codeShortcuts.INVALID.PIN,
+  ],
+  401: [
+    codeShortcuts.UNAUTHORIZED,
+  ],
+  403: [
+    codeShortcuts.BOTS_ONLY,
+    codeShortcuts.CANNOT,
+    codeShortcuts.CHANNEL_VERIFICATION,
+    codeShortcuts.EMBEDS_OFF,
+    codeShortcuts.MAX,
+    codeShortcuts.MISSING,
+    codeShortcuts.NO_BOTS,
+    codeShortcuts.OAUTH2.NO_BOT,
+    codeShortcuts.OAUTH2.LIMIT,
+    codeShortcuts.OAUTH2.INVALID,
+    codeShortcuts.NO_DM,
+    codeShortcuts.MESSAGE_DELETE_LENGTH,
+  ],
+  404: [
+    codeShortcuts.UNKNOWN,
+    codeShortcuts.OAUTH2.BAD_INVITE,
+  ],
+};
+
+const computedStatusCodes: {[key: number]: number} = {};
+interface ICodeMap {
+  [index: number]: Array<number | ICodeTree>;
+}
+
+interface ICodeTree {
+  [index: string]: number | ICodeTree;
+}
+
+const parse = (statusCode: number, errorCode: number | ICodeTree) => {
+  if (typeof errorCode === "number") {
+    computedStatusCodes[errorCode] = statusCode;
+  } else {
+    Object.values(errorCode).forEach((value) => {
+      parse(statusCode, value);
+    });
+  }
+};
+
+Object.keys(statusCodes).forEach((code) => {
+  const numberCode = Number.parseInt(code);
+  if (isNaN(numberCode)) {
+    return;
+  }
+  const errorCodes = statusCodes[numberCode];
+  if (!errorCodes) {
+    return;
+  }
+  errorCodes.forEach((errorCode) => {
+    if (typeof errorCode === "number") {
+      computedStatusCodes[errorCode] = numberCode;
+    } else {
+      parse(numberCode, errorCode);
+    }
+  });
+});
+
 const codes = Object.keys(codeMap);
 
 export default new class ErrorEmitter {
@@ -122,7 +193,9 @@ export default new class ErrorEmitter {
 
   public send(res: Response, code: number): void {
     if (codes.indexOf(code.toString()) >= 0) {
-      res.json({code, message: codeMap[code]});
+      res.status(computedStatusCodes[code] || 200).json({code, message: codeMap[code]});
+    } else {
+      res.status(400).json({code});
     }
   }
 }();

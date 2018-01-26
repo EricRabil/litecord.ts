@@ -2,7 +2,7 @@
 import * as bodyParser from "body-parser";
 import * as cors from "cors";
 import * as express from "express";
-import {Request} from "express";
+import {Request, Response} from "express";
 import * as fs from "fs-extra";
 import * as jwt from "jwt-then";
 import * as mongoose from "mongoose";
@@ -27,21 +27,16 @@ const hat = require("hat");
 const logger = new Logger();
 process.on("unhandledRejection", logger.printError);
 
-async function createGuild(name: string, ownerID: string): Promise<InstanceType<GuildModel>> {
-  const user = await UserModel.findById(ownerID);
-  if (!user) {
-    throw new Error("No user with the provided ID exists");
+const addAllToMainGuild = async () => {
+  const guild = await Guild.findOne();
+  if (!guild) {
+    return;
   }
-  const guild = new Guild();
-  guild.name = name;
-  guild.ownerID = ownerID;
-  guild.region = "RUSSIA";
-  guild.members.push(ownerID);
-  await guild.save();
-  user.guilds.push(guild._id);
-  await user.save();
-  return guild;
-}
+  const users = await UserModel.find();
+  for (let i = 0; i < users.length; i++) {
+    await guild.addToGuild(users[i]);
+  }
+};
 
 (mongoose as any).Promise = global.Promise;
 
@@ -63,7 +58,7 @@ export default class Server {
     return {
       expiration: expiration.getTime(),
       passwordHash: user.password,
-      userID: user._id,
+      userID: user.snowflake,
     };
   }
 
@@ -94,12 +89,12 @@ export default class Server {
       if (Date.now() > verified.expiration) {
         return;
       } else {
-        const user = await UserModel.findOne({_id: verified.userID});
+        const user = await UserModel.findOne({snowflake: verified.userID});
         if (!user) {
           logger.debug(`Couldn't find user ID in database: ${verified.userID}`);
           return;
         }
-        if ((user._id.equals(verified.userID)) && (verified.passwordHash === user.password)) {
+        if ((user.snowflake === verified.userID) && (verified.passwordHash === user.password)) {
           return user;
         } else {
           return;
@@ -133,7 +128,7 @@ export default class Server {
   }
 
   public get gatewayURL(): string {
-    return "wss://discordts-gateway.ericrabil.com";
+    return "ws://localhost:3750";
   }
 
   public static get config(): Config {
@@ -162,21 +157,29 @@ export default class Server {
     logger.log("Setting up express");
     this.express = express();
     this.express.use((req: express.Request, res: express.Response, next) => {
-      logger.debug(`[Express] ${req.method} - ${req.originalUrl}`);
       next();
+      logger.debug(`[Express] ${req.method} - ${req.originalUrl}`);
     });
     this.express.use(cors());
     this.express.use(bodyParser.json());
-    const handler: express.ErrorRequestHandler = (error, req, res, next) => {
+    this.express.use((error: any, req: any, res: Response, next: () => void) => {
       if (error) {
         res.status(400).send({error: 0, message: "Bad request"});
       } else {
         next();
       }
-    };
-    this.express.use(handler);
+    });
+    const errorEmitter = this.errorEmitter;
+    this.express.use((req, res, next) => {
+      (res as any).reject = function(this: Response, code: number) {
+        return new Promise((resolve, reject) => {
+          errorEmitter.send(this, code);
+        });
+      };
+      next();
+    });
     logger.log("Connecting to mongo");
-    await mongoose.connect("mongodb://localhost/discordts", {useMongoClient: true});
+    await mongoose.connect("mongodb://localhost/discordts4", {useMongoClient: true});
     logger.log("Loading routes (synchronously)");
     this.load(path.join(__dirname, "routes"));
     this.express.use((req: express.Request, res: express.Response) => {
@@ -223,11 +226,11 @@ export default class Server {
       if (stats.isDirectory()) {
         this.load(contentPath);
       } else {
-        if (content.endsWith(".js")) {
+        if (!content.includes("guard") && content.endsWith(".js")) {
           const loadedRoute = new (require(contentPath).default)(this);
           if (this.isRoute(loadedRoute)) {
-            if (loadedRoute.requiresAuthorization) {
-              this.express[loadedRoute.requestMethod](loadedRoute.path, async (req, res, next) => {
+            if (loadedRoute.requiresAuthorization || !!loadedRoute.guard) {
+              this.express[loadedRoute.requestMethod](loadedRoute.path, async (req, res) => {
                 if (req.headers.authorization) {
                   let token = req.headers.authorization;
                   if (Array.isArray(token)) {
@@ -236,7 +239,23 @@ export default class Server {
                   const valid = await Server.validateToken(token);
                   if (valid) {
                     (req as any).user = valid;
-                    loadedRoute.requestHandler((req as any), res, next);
+                    if (!!loadedRoute.guard) {
+                      const data: {[key: string]: any} = {};
+                      let currentIndex: number = 0;
+                      let previous: any;
+                      const next: () => void = () => {
+                        const guard = Array.isArray(loadedRoute.guard) ? loadedRoute.guard[currentIndex++] : loadedRoute.guard;
+                        if (!guard || previous === guard) {
+                          loadedRoute.requestHandler((req as any), (res as any), data);
+                        } else {
+                          previous = guard;
+                          guard(req as any, res as any, data, next);
+                        }
+                      };
+                      next();
+                    } else {
+                      loadedRoute.requestHandler((req as any), (res as any), {});
+                    }
                   } else {
                     res.status(401).send({code: 0, message: "401: Unauthorized"});
                   }
@@ -245,9 +264,7 @@ export default class Server {
                 }
               });
             } else {
-              this.express[loadedRoute.requestMethod](loadedRoute.path, (req, res, next) => {
-                loadedRoute.requestHandler((req as any), res, next);
-              });
+              this.express[loadedRoute.requestMethod](loadedRoute.path, loadedRoute.requestHandler.bind(loadedRoute));
             }
             logger.debug(`Loaded route ${loadedRoute.requestMethod} ${loadedRoute.path}`);
           }

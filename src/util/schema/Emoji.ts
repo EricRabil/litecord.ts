@@ -4,6 +4,8 @@ import {arrayProp, instanceMethod, InstanceType, ModelType, prop, staticMethod, 
 import Server from "../../server";
 import User from "./User";
 
+import {generate as generateSnowflake} from "../SnowflakeUtils";
+
 export interface IEmojiObject {
   id: string;
   name: string;
@@ -14,6 +16,9 @@ export interface IEmojiObject {
 }
 
 export class Emoji extends Typegoose {
+  @prop({default: generateSnowflake, required: true})
+  public snowflake: string;
+
   @prop()
   public name: string;
 
@@ -35,23 +40,23 @@ export class Emoji extends Typegoose {
   @prop()
   public user?: string;
 
-  @prop()
-  public requireColons: boolean = true;
+  @prop({default: true})
+  public requireColons: boolean;
 
-  @prop()
-  public managed: boolean = false;
+  @prop({default: false})
+  public managed: boolean;
 
   @instanceMethod
   public async toEmojiObject(this: InstanceType<Emoji>): Promise<IEmojiObject> {
     const emojiObject: IEmojiObject = {
-      id: this._id,
+      id: this.snowflake,
       name: this.name,
       roles: this.roles,
       require_colons: this.requireColons,
       managed: this.managed,
     };
     if (this.user) {
-      const doc = await User.findById(this.user);
+      const doc = await User.findOne({snowflake: this.user});
       if (!doc) {
         return emojiObject;
       } else {

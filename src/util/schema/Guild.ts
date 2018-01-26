@@ -2,16 +2,14 @@
 import * as mongoose from "mongoose";
 import {arrayProp, instanceMethod, InstanceType, ModelType, prop, staticMethod, Typegoose} from "typegoose";
 import Server from "../../server";
-import Channel from "./Channel";
-import {Channel as ChannelModel, IChannelObject} from "./Channel";
-import Emoji from "./Emoji";
-import {Emoji as EmojiModel, IEmojiObject} from "./Emoji";
-import GuildMember from "./GuildMember";
-import {GuildMember as GuildMemberModel, IGuildMemberObject} from "./GuildMember";
-import Role from "./Role";
-import {IRoleObject, Role as RoleModel} from "./Role";
-import User from "./User";
-import {IUserObject, User as UserModel} from "./User";
+import Channel, {Channel as ChannelModel, IChannelObject, IMessageRequestProps} from "./Channel";
+import Emoji, {Emoji as EmojiModel, IEmojiObject} from "./Emoji";
+import GuildMember, {GuildMember as GuildMemberModel, IGuildMemberObject} from "./GuildMember";
+import Role, {IRoleObject, RoleModel as RoleModel} from "./Role";
+import User, {IUserObject, User as UserModel} from "./User";
+
+import {generate as generateSnowflake} from "../SnowflakeUtils";
+import { getEntities } from "../Util";
 
 export interface IGuildObject {
   id: string;
@@ -45,6 +43,11 @@ export interface IGuildObject {
   system_channel_id: string;
 }
 
+export interface IChannelRequestProps {
+  include?: boolean;
+  messages?: IMessageRequestProps;
+}
+
 export interface IChannelData {
   name: string;
   type: 0 | 2 | 4;
@@ -68,6 +71,9 @@ async function lookupBulk<T>(document: mongoose.Model<InstanceType<T>>,
 }
 
 export class Guild extends Typegoose {
+  @prop({default: generateSnowflake, required: true})
+  public snowflake: string;
+
   @prop()
   public name: string;
 
@@ -210,10 +216,16 @@ export class Guild extends Typegoose {
 
   @instanceMethod
   public async dispatch(this: InstanceType<Guild>, data: any, event: string): Promise<void> {
-    const members = await this.getMembers();
-    const dispatches: string[] = [];
-    for (const member of members) {
-      dispatches.push(member.user);
+    const {$exclude} = data;
+    if (!!$exclude) {
+      delete data.$exclude;
+    }
+    const exclude: string[] = (Array.isArray($exclude) && typeof $exclude[0] === "string") ? $exclude : [];
+    const dispatches: string[] = this.members;
+    if (exclude.length > 0) {
+      for (let i = 0; i < exclude.length; i++) {
+        dispatches.splice(dispatches.indexOf(exclude[i]));
+      }
     }
     Server.socketManager.send(dispatches, data, event);
   }
@@ -226,36 +238,67 @@ export class Guild extends Typegoose {
     newChannel.name = data.name;
     newChannel.type = data.type;
     newChannel.default = data.default;
-    newChannel.parentID = this._id;
+    newChannel.guildID = this.snowflake;
     newChannel.save();
-    this.channels.push(newChannel._id);
+    this.channels.push(newChannel.snowflake);
     await this.save();
     return newChannel;
   }
 
   @instanceMethod
+  public async member(this: InstanceType<Guild>, user: string | InstanceType<UserModel>): Promise<InstanceType<GuildMemberModel> | null> {
+    return GuildMember.findOne({guild: this.snowflake, user: typeof user === "string" ? user : user.snowflake});
+  }
+
+  @instanceMethod
+  public async addToGuild(this: InstanceType<Guild>, user: string | InstanceType<UserModel> | null): Promise<InstanceType<GuildMemberModel> | null> {
+    user = typeof user === "string" ? await User.findOne({snowflake: user}) : user;
+    if (!user) {
+      return null;
+    }
+    if (this.members.includes(user.snowflake)) {
+      return await this.member(user.snowflake);
+    }
+    const member = new GuildMember();
+    member.user = user.snowflake;
+    member.guild = this.snowflake;
+    member.snowflake = user.snowflake;
+    user.guilds.push(this.snowflake);
+    this.members.push(member.user);
+    this.users.push(member.user);
+    await Promise.all([member.save(), user.save(), this.save()]);
+    await this.dispatch({$exclude: [user.snowflake], guild_id: this.snowflake, ...(await member.toGuildMemberObject())}, "GUILD_MEMBER_ADD");
+    await user.dispatch(await this.toGuildObject(true, {channel: {messages: {author: {more: false}}}}), "GUILD_CREATE");
+  }
+
+  @instanceMethod
   public async getMembers(this: InstanceType<Guild>): Promise<Array<InstanceType<GuildMemberModel>>> {
-    return this.getEntities(this.members, GuildMember, new GuildMemberModel());
+    return getEntities(this.members, GuildMember, new GuildMemberModel());
   }
 
   @instanceMethod
   public async getEmojis(this: InstanceType<Guild>): Promise<Array<InstanceType<EmojiModel>>> {
-    return this.getEntities(this.emojis, Emoji, new EmojiModel());
+    return getEntities(this.emojis, Emoji, new EmojiModel());
   }
 
   @instanceMethod
   public async getRoles(this: InstanceType<Guild>): Promise<Array<InstanceType<RoleModel>>> {
-    return this.getEntities(this.roles, Role, new RoleModel());
+    return getEntities(this.roles, Role, new RoleModel());
+  }
+
+  @instanceMethod
+  public async getRole(this: InstanceType<Guild>, snowflake: string): Promise<InstanceType<RoleModel> | null> {
+    return await Role.findOne({snowflake});
   }
 
   @instanceMethod
   public async getChannels(this: InstanceType<Guild>): Promise<Array<InstanceType<ChannelModel>>> {
-    return this.getEntities(this.channels, Channel, new ChannelModel());
+    return getEntities(this.channels, Channel, new ChannelModel());
   }
 
   @instanceMethod
   public async getUsers(this: InstanceType<Guild>): Promise<Array<InstanceType<UserModel>>> {
-    return this.getEntities(this.users, User, new UserModel());
+    return getEntities(this.users, User, new UserModel());
   }
 
   @instanceMethod
@@ -274,8 +317,8 @@ export class Guild extends Typegoose {
   }
 
   @instanceMethod
-  public async getChannelObjects(this: InstanceType<Guild>): Promise<IChannelObject[]> {
-    return Promise.all((await this.getChannels()).map(async (channel) => await channel.toChannelObject()));
+  public async getChannelObjects(this: InstanceType<Guild>, opts?: IChannelRequestProps): Promise<IChannelObject[]> {
+    return Promise.all((await this.getChannels()).map(async (channel) => await channel.toChannelObject(opts)));
   }
 
   @instanceMethod
@@ -284,9 +327,9 @@ export class Guild extends Typegoose {
   }
 
   @instanceMethod
-  public async toGuildObject(this: InstanceType<Guild>, more: boolean = false): Promise<IGuildObject> {
+  public async toGuildObject(this: InstanceType<Guild>, more: boolean = false, opts?: {channel?: IChannelRequestProps}): Promise<IGuildObject> {
       let guildObject: IGuildObject = {
-        id: this._id,
+        id: this.snowflake,
         name: this.name,
         icon: this.icon,
         splash: this.splash,
@@ -306,7 +349,7 @@ export class Guild extends Typegoose {
         application_id: this.applicationID,
         widget_enabled: this.widgetEnabled,
         widget_channel_id: this.widgetChannel,
-        channels: await this.getChannelObjects(),
+        channels: await this.getChannelObjects(opts && opts.channel),
         system_channel_id: this.systemChannelID,
         presences: [],
       };
@@ -323,22 +366,6 @@ export class Guild extends Typegoose {
         return guildObject;
       }
       return guildObject;
-  }
-
-  @instanceMethod
-  private async getEntities<T extends Typegoose>(
-                                  this: InstanceType<Guild>,
-                                  ids: string[],
-                                  document: mongoose.Model<InstanceType<T>>,
-                                  model: T): Promise<Array<InstanceType<T>>> {
-    const entities: Array<InstanceType<T>> = [];
-    for (const id of ids) {
-      const entity = await document.findById(id);
-      if (entity) {
-        entities.push(entity);
-      }
-    }
-    return entities;
   }
 }
 

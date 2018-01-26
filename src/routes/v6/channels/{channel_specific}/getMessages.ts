@@ -1,42 +1,23 @@
 import * as express from "express";
 import Server from "../../../../server";
-import Route from "../../../../util/Route";
-import Channel from "../../../../util/schema/Channel";
-import Guild from "../../../../util/schema/Guild";
-import Message from "../../../../util/schema/Message";
-import {IMessageObject} from "../../../../util/schema/Message";
+import Route, {RouteGuard} from "../../../../util/Route";
 import {DiscordRequest} from "../../../../util/Util";
+import * as Guards from "./guards";
+import { DiscordChannel, Permissions } from "../../../../util/Constants";
 
 export default class Guilds implements Route {
 
   public requestMethod: "get" = "get";
   public path: string = "/api/v6/channels/:channel_id/messages";
   public requiresAuthorization: true = true;
+  public guard = [Guards.InChannelGuard, Guards.HasPermission(Permissions.READ_MESSAGES)];
 
   public constructor(private server: Server) {}
 
-  public async requestHandler(req: DiscordRequest, res: express.Response): Promise<void> {
-    if (!req.user) {
-      return this.server.errorEmitter.send(res, this.server.errorCodes.BAD_REQUEST);
-    }
-    let channel = await Channel.getChannel(req.params.channel_id);
-    if (!channel) {
-      const tempGuild = await Guild.findById(req.params.channel_id);
-      if (!tempGuild) {
-        return this.server.errorEmitter.send(res, this.server.errorCodes.UNKNOWN.CHANNEL);
-      }
-      channel = await Channel.findById(tempGuild.channels[0]);
-      if (!channel) {
-        return this.server.errorEmitter.send(res, this.server.errorCodes.UNKNOWN.CHANNEL);
-      }
-    }
-    const guild = await channel.getGuild();
-    if (guild) {
-      if (guild.members.indexOf(req.user._id) === -1) {
-        return this.server.errorEmitter.send(res, this.server.errorCodes.MISSING.PERMISSIONS);
-      }
-    }
-    res.json((await channel.getMessageObjects()));
+  public async requestHandler(req: DiscordRequest, res: express.Response, data: any): Promise<void> {
+    const channel: DiscordChannel = data.channel;
+    const limit = !!req.query.limit ? Number.parseInt(req.query.limit as string) || 50 : 50;
+    res.json((await channel.getMessageObjects({author: {more: false}, before: req.query.before, limit})));
     return;
   }
 }

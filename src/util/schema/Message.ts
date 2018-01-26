@@ -1,11 +1,16 @@
 /* tslint:disable:object-literal-sort-keys */
 import * as mongoose from "mongoose";
-import {arrayProp, instanceMethod, InstanceType, ModelType, prop, staticMethod, Typegoose} from "typegoose";
+import {arrayProp, instanceMethod, InstanceType, ModelType, pre, prop, staticMethod, Typegoose} from "typegoose";
 import Server from "../../server";
 import Embed from "./Message/Embed";
 import {Embed as EmbedModel, IEmbedObject} from "./Message/Embed";
-import User from "./User";
+import User, { IUserRequestProps } from "./User";
 import {IUserObject, User as UserModel} from "./User";
+
+import {generate as generateSnowflake} from "../SnowflakeUtils";
+import { IMessageRequestProps } from "./Channel";
+import { AcceptedUpdatesSchema } from "../Constants";
+import { BodyField } from "../../routes/v6/channels/{channel_specific}/guards";
 
 export interface IMessageObject {
   id: string;
@@ -39,8 +44,13 @@ export interface IInternalMessageObject {
   nonce: string | null;
 }
 
-const EVERYONE_PATTERN = /@(everyone|here)/g;
-const ROLES_PATTERN = /<@&[0-9]+>/g;
+export const AcceptedUpdates: AcceptedUpdatesSchema = {
+  content: {
+    type: "string",
+  },
+};
+
+export const AcceptedBodyUpdates: BodyField[] = Object.keys(AcceptedUpdates).map((name) => ({name, type: AcceptedUpdates[name].type, optional: true}));
 
 const filterRoles = (rawRole: string): string => {
   if (rawRole.startsWith("<@")) {
@@ -52,6 +62,33 @@ const filterRoles = (rawRole: string): string => {
   return rawRole;
 };
 
+const USER_REGEX = /(?:<@)([0-9]+)(?:>)/g;
+const ROLE_REGEX = /(?:<@&)([0-9]+)(?:>)/g;
+const EVERYONE_PATTERN = /@(everyone|here)/g;
+
+const sanitize = async (original: string[] | null): Promise<string[]> => {
+  if (!original) {
+    return [];
+  }
+  const sanitized: string[] = [];
+  for (let i = 0; i < original.length; i++) {
+    if (original[i].startsWith("<@")) {
+      continue;
+    }
+    sanitized.push(original[i]);
+  }
+  return sanitized;
+};
+
+@pre<Message>("save", async function(next) {
+const userMatch = await sanitize(USER_REGEX.exec(this.content));
+const roleMatch = await sanitize(ROLE_REGEX.exec(this.content));
+const everyone = !!this.content.match(EVERYONE_PATTERN);
+this.mentionEveryone = everyone;
+this.roleMentions = roleMatch;
+this.mentions = userMatch;
+next();
+})
 export class Message extends Typegoose {
 
   @staticMethod
@@ -61,7 +98,7 @@ export class Message extends Typegoose {
       data: {content: string; [key: string]: any}): Promise<IMessageObject> {
         const roleMentions = ROLES_PATTERN.exec(data.content);
         const messageObject: IMessageObject = {
-          author: author._id,
+          author: author.snowflake,
           content: data.content,
           mention_everyone: !!EVERYONE_PATTERN.exec(data.content),
           mention_roles: roleMentions && roleMentions.map(filterRoles) || [],
@@ -74,6 +111,9 @@ export class Message extends Typegoose {
           
         }
   }
+
+  @prop({default: generateSnowflake, required: true})
+  public snowflake: string;
 
   @prop({required: true})
   public channelID: string;
@@ -125,7 +165,7 @@ export class Message extends Typegoose {
 
   @instanceMethod
   public async getAuthor(this: InstanceType<Message>): Promise<InstanceType<UserModel> | null> {
-    return await User.findById(this.authorID);
+    return await User.findOne({snowflake: this.authorID});
   }
 
   @instanceMethod
@@ -149,17 +189,17 @@ export class Message extends Typegoose {
   }
 
   @instanceMethod
-  public async getAuthorObject(this: InstanceType<Message>): Promise<IUserObject | null> {
+  public async getAuthorObject(this: InstanceType<Message>, props?: IUserRequestProps): Promise<IUserObject | null> {
     const author = await this.getAuthor();
-    return author && await author.toUserObject();
+    return author && await author.toUserObject(props);
   }
 
   @instanceMethod
-  public async toMessageObject(this: InstanceType<Message>): Promise<IMessageObject> {
+  public async toMessageObject(this: InstanceType<Message>, props?: IMessageRequestProps): Promise<IMessageObject> {
     return {
-      id: this._id,
+      id: this.snowflake,
       channel_id: this.channelID,
-      author: await this.getAuthorObject(),
+      author: await this.getAuthorObject(props && props.author),
       content: this.content,
       timestamp: this.timestamp.toISOString(),
       edited_timestamp: this.editedTimestamp ? this.editedTimestamp.toISOString() : null,
@@ -185,7 +225,7 @@ export class Message extends Typegoose {
                                   model: T): Promise<Array<InstanceType<T>>> {
     const entities: Array<InstanceType<T>> = [];
     for (const id of ids) {
-      const entity = await document.findById(id);
+      const entity = await document.findOne({snowflake: id});
       if (entity) {
         entities.push(entity);
       }

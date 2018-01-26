@@ -1,9 +1,12 @@
 import * as express from "express";
 import Server from "../../../../server";
 import Route from "../../../../util/Route";
-import Channel from "../../../../util/schema/Channel";
+import Channel, {AcceptedUpdates} from "../../../../util/schema/Channel";
 import Guild from "../../../../util/schema/Guild";
-import {DiscordRequest} from "../../../../util/Util";
+import {DiscordRequest, DiscordResponse} from "../../../../util/Util";
+import * as Guards from "./guards";
+import { DiscordChannel } from "../../../../util/Constants";
+import { CODES } from "../../../../util/ErrorEmitter";
 
 interface IChannelUpdateRequest {
   name?: string;
@@ -17,42 +20,23 @@ export default class Guilds implements Route {
   public requestMethod: "patch" = "patch";
   public path: string = "/api/v6/channels/:channel_id";
   public requiresAuthorization: true = true;
+  public guard = Guards.InChannelGuard;
 
   public constructor(private server: Server) {}
 
-  public async requestHandler(req: DiscordRequest, res: express.Response): Promise<void> {
+  public async requestHandler(req: DiscordRequest, res: DiscordResponse, data: any): Promise<void> {
     if (this.isRequest(req.body) && req.user) {
-      const channel = await Channel.getChannel(req.params.channel_id);
-      if (!channel) {
-        return Server.errorEmitter.send(res, Server.errorCodes.UNKNOWN.CHANNEL);
-      }
-      const ownerID = await channel.getOwnerID();
-      if (!ownerID || !req.user._id.equals(ownerID)) {
-        return Server.errorEmitter.send(res, Server.errorCodes.NO_DM);
-      }
-      const guild = await channel.getGuild();
-      if (!guild) {
-        return Server.errorEmitter.send(res, Server.errorCodes.UNKNOWN.ERROR);
-      }
-      if (typeof req.body.name === "string") {
-        channel.name = req.body.name;
-      }
-      if (!isNaN(Number(req.body.position))) {
-        channel.channelPosition = Number(req.body.position);
-      }
-      if (typeof req.body.topic === "string") {
-        channel.topic = req.body.topic;
-      }
-      if (req.body.nsfw) {
-        channel.nsfw = Boolean(req.body.nsfw);
-      }
-      console.log(req.body);
+      const channel: DiscordChannel = data.channel;
+      Object.keys(req.body)
+        .filter((key) => !!AcceptedUpdates[key])
+        .filter((key) => typeof req.body[key] === AcceptedUpdates[key].type)
+        .forEach((key) => (channel as any)[AcceptedUpdates[key].mappedValue || key] = req.body[key]);
       await channel.save();
-      const channelObject = await channel.toChannelObject();
-      guild.dispatch(channelObject, "CHANNEL_UPDATE");
+      const channelObject = await channel.toChannelObject({messages: {include: false}});
+      channel.dispatch(channelObject, "CHANNEL_UPDATE");
       res.json(channelObject);
     } else {
-      Server.errorEmitter.send(res, Server.errorEmitter.CODES.BAD_REQUEST);
+      res.reject(CODES.BAD_REQUEST);
     }
   }
 

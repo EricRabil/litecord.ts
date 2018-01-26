@@ -10,7 +10,12 @@
         "max-classes-per-file": false,
         "no-var-requires": false,
         "prefer-for-of": false,
-        "no-namespace": false
+        "no-namespace": false,
+        "max-line-length": false,
+        "object-literal-sort-keys": false,
+        "no-bitwise": false,
+        "ordered-imports": false,
+        "interface-name": false
     },
     "rulesDirectory": []
 }

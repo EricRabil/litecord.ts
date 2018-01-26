@@ -18,16 +18,16 @@ const HELLO: object = {
 };
 
 async function READY(user: User & Document): Promise<object> {
-  let payload = {
+  const payload = {
     v: 6,
     _trace: ["big-sexy-boy"],
     private_channels: [],
-    guilds: (await user.getGuilds(true)),
+    guilds: (await user.getGuildObjects(true)),
     relationships: [],
     read_state: [],
     user: user.toUserObject(),
+    ...(await user.getMetadata()),
   };
-  payload = Object.assign(payload, user.getMetadata());
   return payload;
 }
 
@@ -59,10 +59,11 @@ export class SocketWrapper {
     this.sendHello();
     this.socket.onmessage = this.onMessage.bind(this);
     this.socket.onclose = this.onClose.bind(this);
+    this.socket.onerror = this.onClose.bind(this);
   }
 
   public onClose(event: {wasClean: boolean, code: number, reason: string, target: ws}): void {
-    logger.debug(`Socket was closed - Clean: ${event.wasClean} - Code: ${event.code} - Reason: ${event.reason}`);
+    logger.debug(`Socket was closed - Clean: ${event.wasClean || false} - Code: ${event.code || 0} - Reason: ${event.reason || event.name}`);
     this.opened = false;
     if (this.snowflake) {
       const index = this.manager.sockets[this.snowflake].indexOf(this);
@@ -125,7 +126,6 @@ export class SocketWrapper {
           this.guildSync(data.d);
           break;
         case WebsocketCodes.OPCODES.VOICE_STATE_UPDATE:
-          this.send(WebsocketCodes.OPCODES.VOICE_STATE_UPDATE, {}, "VOICE_STATE_UPDATE");
           break;
         default:
           this.unknownOPCode(opcode);
@@ -138,7 +138,6 @@ export class SocketWrapper {
 
   private unknownOPCode(opcode: number): void {
     logger.debug(`Unknown opcode: ${opcode}`);
-    this.send((null as any), {});
   }
 
   private sendHeartbeat(): void {
@@ -154,7 +153,7 @@ export class SocketWrapper {
   private async guildSync(data: any): Promise<void> {
     logger.debug(`Sending guild sync`);
     for (const guildID of (data as string[])) {
-      const guild = await Guild.findById(guildID);
+      const guild = await Guild.findOne({snowflake: guildID});
       if (!guild) {
         continue;
       }
@@ -162,12 +161,11 @@ export class SocketWrapper {
         continue;
       }
       this.send(WebsocketCodes.OPCODES.DISPATCH, {
-        id: guild._id,
+        id: guild.snowflake,
         presences: [],
         members: await guild.getMemberObjects(),
       }, "GUILD_SYNC");
     }
-    this.send(WebsocketCodes.OPCODES.GUILD_SYNC, {});
   }
 
   private async onAuthorization(data: any): Promise<void> {
@@ -180,8 +178,8 @@ export class SocketWrapper {
         const user = await Server.validateToken(data.token);
         if (user) {
           await this.send(WebsocketCodes.OPCODES.DISPATCH, await READY(user), "READY");
-          this.snowflake = user._id;
-          this.manager.registerSocket(user._id, this);
+          this.snowflake = user.snowflake;
+          this.manager.registerSocket(user.snowflake, this);
         } else {
           this.close(WebsocketCodes.CLOSECODES.AUTH_FAILED);
         }

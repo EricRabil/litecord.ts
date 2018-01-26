@@ -14,7 +14,7 @@ export class SocketManager {
   public static readonly GATEWAY_NAME: string = "big-sexy-boy";
   public static readonly HEARTBEAT_INTERVAL: number = 41250;
 
-  public sockets: {[key: string]: SocketWrapper[]} = {};
+  public sockets: Map<string, SocketWrapper[]> = new Map();
 
   private server: ws.Server;
 
@@ -22,6 +22,7 @@ export class SocketManager {
     this.server = new ws.Server({port});
     Server.logger.log(`Socket server is listening on port ${port}`);
     this.server.on("connection", (socket, request) => {
+      Server.logger.log("Hello!");
       let queryRaw;
       const query: {[key: string]: string} = {};
       if (request.url) {
@@ -47,27 +48,28 @@ export class SocketManager {
   }
 
   public async registerSocket(id: string, socket: SocketWrapper): Promise<void> {
-    if (this.sockets[id]) {
-      this.sockets[id].push(socket);
-    } else {
-      this.sockets[id] = [socket];
-    }
+    const list = this.sockets.get(id) || [];
+    list.push(socket);
+    this.sockets.set(id, list);
   }
 
   public async send(ids: string | string[], payload: any, event: string): Promise<void> {
     if (!Array.isArray(ids)) {
       ids = [ids];
     }
+    const sendQueue: Array<Promise<void>> = [];
     for (const userID of ids) {
-      if (this.sockets[userID]) {
-        for (const socket of this.sockets[userID]) {
+      const socketList = this.sockets.get(userID);
+      if (socketList) {
+        for (const socket of socketList) {
           if (!socket.opened) {
-            this.sockets[userID].splice(this.sockets[userID].indexOf(socket));
+            socketList.splice(socketList.indexOf(socket));
             continue;
           }
-          await socket.send(WebsocketCodes.OPCODES.DISPATCH, payload, event);
+          sendQueue.push(socket.send(WebsocketCodes.OPCODES.DISPATCH, payload, event));
         }
       }
     }
+    await Promise.all(sendQueue);
   }
 }

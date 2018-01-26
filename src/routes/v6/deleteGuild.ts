@@ -14,19 +14,19 @@ export default class Guilds implements Route {
 
   public async requestHandler(req: DiscordRequest, res: express.Response): Promise<void> {
     if (req.user) {
-      const guild = await Guild.findById(req.params.guild_id);
+      const guild = await Guild.findOne({snowflake: req.params.guild_id});
       if (!guild) {
         res.status(404).send({code: 10004, message: "Unknown guild"});
         return;
       } else {
-        if (!req.user._id.equals(guild.ownerID)) {
+        if (req.user.snowflake !== guild.ownerID) {
           Server.errorEmitter.send(res, Server.errorEmitter.CODES.MISSING.ACCESS);
         } else {
           const members = await guild.getMembers();
           for (const member of members) {
             const user = await member.getUser();
             if (user) {
-              user.guilds.splice(user.guilds.indexOf(guild._id));
+              user.guilds.splice(user.guilds.indexOf(guild.snowflake));
               await user.save();
             }
             await member.remove();

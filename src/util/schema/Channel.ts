@@ -2,12 +2,19 @@
 import * as mongoose from "mongoose";
 import {arrayProp, instanceMethod, InstanceType, ModelType, prop, staticMethod, Typegoose} from "typegoose";
 import Server from "../../server";
-import Guild from "./Guild";
+import {can as hasPermission, can, computeOverrides} from "../PermissionUtils";
+import Guild, { IChannelRequestProps } from "./Guild";
 import { Guild as GuildModel } from "./Guild";
+import GuildMember, { GuildMember as GuildMemberModel, GuildMember } from "./GuildMember";
 import MessageModel from "./Message";
 import {IMessageObject, Message} from "./Message";
 import UserModel from "./User";
-import {IUserObject, User} from "./User";
+import {IUserObject, IUserRequestProps, User} from "./User";
+
+import {generate as generateSnowflake} from "../SnowflakeUtils";
+import Role, { RoleModel } from "./Role";
+import { PermissionOverwrite, getEntities } from "../Util";
+import { AcceptedUpdatesSchema, Permissions, DiscordMessage } from "../Constants";
 
 export interface IChannelObject {
   id: string;
@@ -29,19 +36,28 @@ export interface IChannelObject {
   messages: IMessageObject[];
 }
 
-export class PermissionOverwrites extends Typegoose {
-  @prop()
-  public id: string;
-
-  @prop()
-  public type: "role" | "member";
-
-  @prop()
-  public allow: number;
-
-  @prop()
-  public deny: number;
+export interface IMessageRequestProps {
+  include?: boolean;
+  limit?: number;
+  author?: IUserRequestProps;
+  before?: string;
 }
+
+export const AcceptedUpdates: AcceptedUpdatesSchema = {
+  name: {
+    type: "string",
+  },
+  topic: {
+    type: "string",
+  },
+  nsfw: {
+    type: "boolean",
+  },
+  position: {
+    type: "number",
+    mappedValue: "channelPosition",
+  },
+};
 
 export class Channel extends Typegoose {
 
@@ -49,7 +65,7 @@ export class Channel extends Typegoose {
   public static async getChannel(
       this: ModelType<Channel> & Channel,
       channelID: string): Promise<InstanceType<Channel> | null> {
-    let channel = await ChannelModel.findById(channelID);
+    let channel = await ChannelModel.findOne({snowflake: channelID});
     if (!channel) {
       const results = await ChannelModel.find({parentID: channelID});
       if (results.length === 0) {
@@ -60,8 +76,8 @@ export class Channel extends Typegoose {
     return channel;
   }
 
-  @prop()
-  public id: string;
+  @prop({default: generateSnowflake, required: true})
+  public snowflake: string;
 
   /**
    * The type of channel
@@ -84,8 +100,8 @@ export class Channel extends Typegoose {
   @prop()
   public channelPosition?: number;
 
-  @arrayProp({items: PermissionOverwrites})
-  public permissionOverwrites?: PermissionOverwrites[];
+  @arrayProp({items: PermissionOverwrite})
+  public permissionOverwrites?: PermissionOverwrite[];
 
   @prop()
   public name?: string;
@@ -127,41 +143,113 @@ export class Channel extends Typegoose {
   public default: boolean;
 
   @instanceMethod
-  public async getMessages(this: InstanceType<Channel>): Promise<Array<InstanceType<Message>>> {
-    return await MessageModel.find({channelID: this._id});
+  public async getMessages(this: InstanceType<Channel>, query: {limit: number, before?: string}): Promise<Array<InstanceType<Message>>> {
+    const beforeMessage = query.before && await MessageModel.findOne({snowflake: query.before}).exec();
+    let before = new Date();
+    if (beforeMessage) {
+      before = beforeMessage.timestamp;
+    }
+    let messages = await MessageModel.find({channelID: this.snowflake, timestamp: {$lte: before}}).limit(query.limit).sort("-timestamp").exec();
+    messages = messages.sort((message1, message2) => (message2.timestamp as any as number) - (message1.timestamp as any as number));
+    return messages;
   }
 
   @instanceMethod
-  public async getMessageObjects(this: InstanceType<Channel>): Promise<IMessageObject[]> {
-    return Promise.all((await this.getMessages()).map((message) => message.toMessageObject()));
+  public async getMessageObjects(this: InstanceType<Channel>, props?: IMessageRequestProps): Promise<IMessageObject[]> {
+    return Promise.all((await this.getMessages({limit: props && props.limit || 50, before: props && props.before || undefined})).map((message) => message.toMessageObject(props)));
+  }
+
+  @instanceMethod
+  public async hasPermission(this: InstanceType<Channel>, target: InstanceType<GuildMemberModel | User | RoleModel>, permission: number): Promise<boolean> {
+    if (!this.guildID) {
+      if (target instanceof UserModel) {
+        const user = target as InstanceType<User>;
+        // TODO: Actual logic for DM channels
+        return true;
+      }
+      return false;
+    }
+    const guild = await this.getGuild();
+    if (!guild) {
+      return false;
+    }
+    let guildEntity: InstanceType<GuildMemberModel | RoleModel> | undefined;
+    if (target instanceof UserModel) {
+      const user = target as InstanceType<User>;
+      if (!guild.members.includes(user.snowflake)) {
+        return false;
+      }
+      const member = await GuildMember.findOne({snowflake: user.snowflake});
+      if (member) {
+        guildEntity = member;
+      }
+    } else if (target instanceof Role) {
+      guildEntity = target as InstanceType<RoleModel>;
+    }
+    if (!guildEntity) {
+      return false;
+    }
   }
 
   @instanceMethod
   public async sendMessage(this: InstanceType<Channel>, message: IMessageObject): Promise<IMessageObject> {
     const messageSchema = new MessageModel();
-    console.log(message);
-    messageSchema.authorID = message.author && message.author.id || "";
-    messageSchema.channelID = this._id;
+    messageSchema.authorID = message.author && message.author.id || "",
+    messageSchema.channelID = this.snowflake;
     messageSchema.content = message.content;
-    messageSchema.mentionEveryone = message.mention_everyone;
+    messageSchema.mentionEveryone = message.mention_everyone || false;
     messageSchema.nonce = (message.nonce as string);
-    messageSchema.pinned = message.pinned;
-    messageSchema.roleMentions = message.mention_roles;
-    messageSchema.tts = message.tts;
+    messageSchema.pinned = message.pinned || false;
+    messageSchema.roleMentions = message.mention_roles || [];
+    messageSchema.tts = message.tts || false;
     messageSchema.webhookID = (message.webhook_id as string);
-    await messageSchema.save();
-    const guild = await this.getGuild();
-    const messageObj = await messageSchema.toMessageObject();
-    if (guild) {
-      await guild.dispatch(messageObj, "MESSAGE_CREATE");
-    }
+    messageSchema.save();
+    const messageObj = await messageSchema.toMessageObject({author: {more: false}});
+    this.dispatch(messageObj, "MESSAGE_CREATE");
     return messageObj;
   }
 
   @instanceMethod
-  public async toChannelObject(this: InstanceType<Channel>): Promise<IChannelObject> {
+  public async deleteMessage(this: InstanceType<Channel>, message: InstanceType<Message> | string): Promise<void> {
+    if (typeof message === "string") {
+      const tempMessage = await MessageModel.findOne({snowflake: message});
+      if (tempMessage) {
+        message = tempMessage;
+      } else {
+        return;
+      }
+    }
+    message.remove();
+    this.dispatch({id: message.snowflake, channel_id: message.channelID}, "MESSAGE_DELETE");
+  }
+
+  @instanceMethod
+  public async dispatch(this: InstanceType<Channel>, data: any, event: string): Promise<void> {
+    await Server.socketManager.send(await this.getRecipients(), data, event);
+  }
+
+  @instanceMethod
+  public async getRecipients(this: InstanceType<Channel>): Promise<string[]> {
+    const guild = await this.getGuild();
+    if (guild) {
+      const totalMembers = await guild.getMembers();
+      const recipients: string[] = [];
+      for (let i = 0; i < totalMembers.length; i++) {
+        if (await can(Permissions.READ_MESSAGES, await computeOverrides(totalMembers[i], this))) {
+          recipients.push(totalMembers[i].snowflake);
+        }
+      }
+      return recipients;
+    } else if (!!this.recipients) {
+      return this.recipients;
+    }
+    return [];
+  }
+
+  @instanceMethod
+  public async toChannelObject(this: InstanceType<Channel>, opts?: IChannelRequestProps): Promise<IChannelObject> {
     const channelObject: IChannelObject = {
-      id: this.default ? this.parentID : this._id,
+      id: this.snowflake,
       type: this.type,
       guild_id: this.guildID,
       position: this.channelPosition,
@@ -176,12 +264,12 @@ export class Channel extends Typegoose {
       owner_id: await this.getOwnerID(),
       application_id: this.applicationID,
       parent_id: this.parentID,
-      messages: await this.getMessageObjects(),
+      messages: (!opts ? true : opts.messages ? typeof opts.messages.include === "boolean" ? opts.messages.include : true : true) ? await this.getMessageObjects(opts && opts.messages) : undefined,
     };
     if (this.recipients) {
       const users: Array<InstanceType<User> | null> = [];
       for (const recipient of this.recipients) {
-        users.push(await UserModel.findById(recipient));
+        users.push(await UserModel.findOne({snowflake: recipient}));
       }
       const userObjs: Array<IUserObject | undefined> = users.map((user) => {
         if (user) {
@@ -207,11 +295,27 @@ export class Channel extends Typegoose {
   }
 
   @instanceMethod
+  public async getPermissionOverride(this: InstanceType<Channel>, snowflake: string): Promise<PermissionOverwrite | undefined> {
+    if (!this.permissionOverwrites) {
+      return;
+    }
+    let overwrite: PermissionOverwrite | undefined;
+    for (let i = 0; i < this.permissionOverwrites.length; i++) {
+      const res = this.permissionOverwrites[i];
+      if (res && res.id === snowflake) {
+        overwrite = res;
+        break;
+      }
+    }
+    return overwrite;
+  }
+
+  @instanceMethod
   public async getGuild(this: InstanceType<Channel>): Promise<InstanceType<GuildModel> | null> {
     if (!this.guildID) {
       return null;
     }
-    return await Guild.findById(this.guildID);
+    return await Guild.findOne({snowflake: this.guildID});
   }
 }
 

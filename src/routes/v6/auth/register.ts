@@ -13,8 +13,6 @@ interface IRegisterBody {
   captcha_key: string | undefined;
 }
 
-const ENABLED_DOMAIN = ["pornhub.com"];
-
 export default class Register implements Route {
 
   public requestMethod: "post" = "post";
@@ -25,10 +23,6 @@ export default class Register implements Route {
   public async requestHandler(req: DiscordRequest, res: express.Response, next: express.NextFunction): Promise<void> {
     const body = req.body;
     if (this.isValid(body)) {
-      if (ENABLED_DOMAIN.filter((d) => body.email.endsWith(d)).length === 0) {
-        res.status(400).json({email: ["Email is disallowed"]});
-        return;
-      }
       const user = await User.findOne({email: body.email});
       if (user) {
         res.status(400).json({email: ["Email already registered"]});

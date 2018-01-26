@@ -7,6 +7,11 @@ import {Guild as GuildModel, IGuildObject} from "./Guild";
 import User from "./User";
 import {IUserObject, User as UserModel} from "./User";
 
+import {generate as generateSnowflake} from "../SnowflakeUtils";
+import Role, { RoleModel as RoleModel } from "./Role";
+import { getEntities } from "../Util";
+import { Channel } from "./Channel";
+
 export interface IGuildMemberObject {
   user?: IUserObject;
   nick?: string;
@@ -17,6 +22,9 @@ export interface IGuildMemberObject {
 }
 
 export class GuildMember extends Typegoose {
+
+  @prop({default: generateSnowflake, required: true})
+  public snowflake: string;
 
   /**
    * The user ID of this member - must be converted to a user object
@@ -53,7 +61,7 @@ export class GuildMember extends Typegoose {
 
   @instanceMethod
   public async toGuildMemberObject(this: InstanceType<GuildMember>): Promise<IGuildMemberObject> {
-    const user = await User.findById(this.user);
+    const user = await User.findOne({snowflake: this.user});
     const obj: IGuildMemberObject = {
       nick: this.nick,
       roles: this.roles,
@@ -68,9 +76,18 @@ export class GuildMember extends Typegoose {
   }
 
   @instanceMethod
+  public async getPermissions(this: InstanceType<GuildMember>, channel?: InstanceType<Channel>): Promise<number> {
+  }
+
+  @instanceMethod
   public async getUser(this: InstanceType<GuildMember>): Promise<InstanceType<UserModel> | null> {
-    const user = await User.findById(this.user);
+    const user = await User.findOne({snowflake: this.user});
     return user;
+  }
+
+  @instanceMethod
+  public getRoles(this: InstanceType<GuildMember>): Promise<Array<InstanceType<RoleModel>>> {
+    return getEntities(this.roles, Role, new RoleModel());
   }
 
   @instanceMethod
@@ -83,9 +100,9 @@ export class GuildMember extends Typegoose {
   }
 
   @instanceMethod
-  public async getGuild(this: InstanceType<GuildMember>): Promise<InstanceType<GuildModel> | null> {
-    const guild = await Guild.findById(this.guild);
-    return guild;
+  public async getGuild(this: InstanceType<GuildMember>): Promise<InstanceType<GuildModel>> {
+    const guild = await Guild.findOne({snowflake: this.guild});
+    return guild as any;
   }
 
   @instanceMethod

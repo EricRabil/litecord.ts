@@ -3,38 +3,27 @@ import Server from "../../../../server";
 import Route from "../../../../util/Route";
 import Channel from "../../../../util/schema/Channel";
 import Guild from "../../../../util/schema/Guild";
-import {DiscordRequest} from "../../../../util/Util";
+import {DiscordRequest, DiscordResponse} from "../../../../util/Util";
+import { DiscordGuild, DiscordChannel } from "../../../../util/Constants";
+import * as Guards from "./guards";
 
 export default class Guilds implements Route {
 
   public requestMethod: "delete" = "delete";
   public path: string = "/api/v6/channels/:channel_id";
   public requiresAuthorization: true = true;
+  public guard = Guards.InChannelGuard;
 
   public constructor(private server: Server) {}
 
-  public async requestHandler(req: DiscordRequest, res: express.Response): Promise<void> {
-    if (req.user) {
-      const channel = await Channel.getChannel(req.params.channel_id);
-      if (!channel) {
-        return Server.errorEmitter.send(res, Server.errorCodes.UNKNOWN.CHANNEL);
-      }
-      const ownerID = await channel.getOwnerID();
-      if (!ownerID || !req.user._id.equals(ownerID)) {
-        return Server.errorEmitter.send(res, Server.errorCodes.NO_DM);
-      }
-      const guild = await channel.getGuild();
-      if (!guild) {
-        return Server.errorEmitter.send(res, Server.errorCodes.UNKNOWN.ERROR);
-      }
-      guild.channels.splice(guild.channels.indexOf(channel._id));
-      guild.save();
-      const channelObject = await channel.toChannelObject();
-      await channel.remove();
-      guild.dispatch(channelObject, "CHANNEL_DELETE");
-      res.status(204).end();
-    } else {
-      Server.errorEmitter.send(res, Server.errorEmitter.CODES.BAD_REQUEST);
-    }
+  public async requestHandler(req: DiscordRequest, res: DiscordResponse, data: any): Promise<void> {
+    const guild: DiscordGuild = data.guild;
+    const channel: DiscordChannel = data.channel;
+    guild.channels.splice(guild.channels.indexOf(channel.snowflake));
+    guild.save();
+    const channelObject = await channel.toChannelObject({messages: {include: false}});
+    res.json(channelObject);
+    guild.dispatch(channelObject, "CHANNEL_DELETE");
+    await channel.remove();
   }
 }
